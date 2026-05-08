@@ -62,7 +62,7 @@ public:
 
 	__device__ CUMAT_STRONG_INLINE Scalar coeff(Index row, Index col, Index batch, Index index) const
 	{
-		return child_.derived().coeff(row, col, batch, index), row, col, batch;
+		return child_.derived().coeff(row, col, batch, index);
 	}
 
     __device__ CUMAT_STRONG_INLINE Scalar getSparseCoeff(Index row, Index col, Index batch, Index index) const
