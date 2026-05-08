@@ -1289,6 +1289,71 @@ public:
         return ExtractComplexPartOp<Type, true, true>(*this);
     }
 
+    //-------------------------------
+    // BLAS-1 OPERATIONS
+    //-------------------------------
+
+    /**
+    * \brief BLAS-1 axpy: y = alpha * x + y (in-place).
+    * Requires matching dimensions. Uses cuBLAS for performance.
+    * \param alpha scalar multiplier
+    * \param x the source matrix
+    */
+    void axpy(const _Scalar& alpha, const Type& x)
+    {
+        CUMAT_ERROR_IF_NO_NVCC(axpy)
+        CUMAT_ASSERT_DIMENSION(rows() == x.rows() && cols() == x.cols() && batches() == x.batches());
+        Index n = rows() * cols();
+        Index stride = n;
+        for (Index b = 0; b < batches(); ++b)
+        {
+            internal::CublasApi::current().cublasAxpy(
+                internal::narrow_cast<int>(n),
+                &alpha,
+                internal::CublasApi::cast(x.data() + b * stride), 1,
+                internal::CublasApi::cast(data() + b * stride), 1);
+        }
+    }
+
+    /**
+    * \brief BLAS-1 copy: y = x (in-place).
+    * Requires matching dimensions. Uses cuBLAS for performance.
+    * \param x the source matrix
+    */
+    void copy(const Type& x)
+    {
+        CUMAT_ERROR_IF_NO_NVCC(copy)
+        CUMAT_ASSERT_DIMENSION(rows() == x.rows() && cols() == x.cols() && batches() == x.batches());
+        Index n = rows() * cols();
+        Index stride = n;
+        for (Index b = 0; b < batches(); ++b)
+        {
+            internal::CublasApi::current().cublasCopy(
+                internal::narrow_cast<int>(n),
+                internal::CublasApi::cast(x.data() + b * stride), 1,
+                internal::CublasApi::cast(data() + b * stride), 1);
+        }
+    }
+
+    /**
+    * \brief BLAS-1 scal: x = alpha * x (in-place).
+    * Uses cuBLAS for performance.
+    * \param alpha scalar multiplier
+    */
+    void scal(const _Scalar& alpha)
+    {
+        CUMAT_ERROR_IF_NO_NVCC(scal)
+        Index n = rows() * cols();
+        Index stride = n;
+        for (Index b = 0; b < batches(); ++b)
+        {
+            internal::CublasApi::current().cublasScal(
+                internal::narrow_cast<int>(n),
+                &alpha,
+                internal::CublasApi::cast(data() + b * stride), 1);
+        }
+    }
+
 };
 
 /**

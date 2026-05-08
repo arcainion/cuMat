@@ -92,3 +92,44 @@ TEST(SparseTest, BatchedSparseMatrix)
     EXPECT_EQ(3, A.rows());
     EXPECT_EQ(3, A.cols());
 }
+
+TEST(SparseTest, ELLPACKMatrixVectorProduct)
+{
+    // Matrix A (3x3, ELLPACK, nnzPerRow=2):
+    // [1 0 2]
+    // [0 3 0]
+    // [4 0 5]
+
+    SparsityPattern<ELLPACK> pattern;
+    pattern.rows = 3;
+    pattern.cols = 3;
+    pattern.nnzPerRow = 2;
+
+    // indices matrix (3x2, column-major)
+    std::vector<int> indicesData = {
+        0, 1, 0,
+        2, -1, 2
+    };
+    pattern.indices = Matrix<int, Dynamic, Dynamic, 1, ColumnMajor>(3, 2, 1);
+    pattern.indices.copyFromHost(indicesData.data());
+
+    SMatrixXf_ELLPACK A(pattern);
+    std::vector<float> valuesData = {
+        1.0f, 3.0f, 4.0f,
+        2.0f, 0.0f, 5.0f
+    };
+    A.getData().copyFromHost(valuesData.data());
+
+    std::vector<float> vecData = {1.0f, 1.0f, 1.0f};
+    VectorXf v(3, 1, 1);
+    v.copyFromHost(vecData.data());
+
+    auto result = (A * v).eval();
+    EXPECT_EQ(3, result.rows());
+
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(3.0f, host[0]);
+    EXPECT_FLOAT_EQ(3.0f, host[1]);
+    EXPECT_FLOAT_EQ(9.0f, host[2]);
+}

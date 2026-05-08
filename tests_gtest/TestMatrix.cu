@@ -248,3 +248,35 @@ TEST(MatrixTest, ZeroSizedBatch)
     EXPECT_EQ(0, m.batches());
     EXPECT_EQ(0, m.size());
 }
+
+TEST(MatrixTest, Blas1Axpy)
+{
+    MatrixXf a = MatrixXf::Constant(2, 2, 1, 1.0f);
+    MatrixXf b = MatrixXf::Constant(2, 2, 1, 2.0f);
+    a.axpy(3.0f, b);
+    std::vector<float> host(4);
+    a.copyToHost(host.data());
+    for (float v : host)
+        EXPECT_FLOAT_EQ(7.0f, v);
+}
+
+TEST(MatrixTest, Blas1Copy)
+{
+    MatrixXf a = MatrixXf::Constant(2, 2, 1, 1.0f);
+    MatrixXf b = MatrixXf::Constant(2, 2, 1, 2.0f);
+    a.copy(b);
+    std::vector<float> host(4);
+    a.copyToHost(host.data());
+    for (float v : host)
+        EXPECT_FLOAT_EQ(2.0f, v);
+}
+
+TEST(MatrixTest, Blas1Scal)
+{
+    MatrixXf a = MatrixXf::Constant(2, 2, 1, 3.0f);
+    a.scal(2.0f);
+    std::vector<float> host(4);
+    a.copyToHost(host.data());
+    for (float v : host)
+        EXPECT_FLOAT_EQ(6.0f, v);
+}

@@ -105,7 +105,7 @@ public:
                 throw cuda_error(internal::ErrorHelpers::format("Potrf failed at batch %d, parameter %d was invalid", i, -singular_[i]));
             } else if (singular_[i]>0)
             {
-                throw cuda_error(internal::ErrorHelpers::format("Potrf failed at batch %d, the leaading minor %d was was not positive definite", i, singular_[i]));
+                throw cuda_error(internal::ErrorHelpers::format("Potrf failed at batch %d, the leading minor %d was not positive definite", i, singular_[i]));
             }
         }
     }

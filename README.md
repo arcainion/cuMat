@@ -97,30 +97,33 @@ The following bugs were identified during a source code audit:
 | **HIGH** | `cuMat/src/TransposeOp.h:147-151` | **FIXED** — Added `const_cast` to resolve dangling reference in non-const `coeff()` |
 | **HIGH** | `cuMat/src/ProductOp.h:214-220` | **FIXED** — Added runtime `left_.batches() == 1` check alongside compile-time check |
 
-### Medium-Priority Issues (3 fixed, 3 pending)
+### Medium-Priority Issues (4 fixed, 2 pending)
 
 **Fixed:**
 - `SparseMatrix.h:468-509` — **FIXED**: Added `#if CUMAT_EIGEN_SUPPORT == 1` guards around Eigen-dependent output
 - `ConjugateGradient.h:69` — **FIXED**: Improved static assertion error message (still requires compile-time batch count)
 - `SimpleRandom.h:237` — **FIXED**: Changed `<<<1, ...>>>` to use occupancy-optimized `cfg.block_count`
+- `CholeskyDecomposition.h:108` — **FIXED**: "leaading" → "leading" and removed duplicate "was"
 
 **Still pending:**
 - `Context.h:371` — `createLaunchConfig1D` silently truncates `Index` (64-bit) to `unsigned int` on large matrices.
 - `ReductionOps.h:331-350` — Thread reduction kernel doesn't use the initial value; undefined behavior for empty batches.
-- `CholeskyDecomposition.h:108` — Typo in error message: "leaading minor" → "leading minor".
 
-### Test Coverage Gaps (22 new tests added, 153 total)
+### Test Coverage Gaps (27 new tests added, 157 total)
 
-The gtest-based test suite in `tests_gtest/` now has **153 passing tests** across 11 test suites. The following areas were recently addressed:
+The gtest-based test suite in `tests_gtest/` now has **157 passing tests** across 11 test suites. The following areas were recently addressed:
 
-**Newly tested (Phase 1):**
+**Newly tested (Phase 2):**
 - Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseBinaryNot`, `cwiseLogicalNot`
 - Compound assignment operators: `/=`, `%=`, `&=`, `|=`, matrix `*=`
 - Edge cases: empty matrices (0×0), single-element matrices, matrix of zeros, scalar multiplication, zero-sized batches
 - `diagonal()` and `asDiagonal()`
+- ELLPACK SpMV: `ELLPACKMatrixVectorProduct`
+- BLAS-1 operations: `Blas1Axpy`, `Blas1Copy`, `Blas1Scal`
 
 **Still untested:**
-- Sparse matrix ops: CSC/ELLPACK SpMV, sparse matrix-matrix product, `sparseView()`, `direct()`
+- CSC SpMV (no kernel implementation yet — marked TODO)
+- Sparse matrix-matrix product, `sparseView()`, `direct()`
 - Batch slicing: `slice()`, `segment()`, `head()`, `tail()`
 - Reduction algorithm variants: `Segmented`, `Thread`, `Block<N>`, `Device<N>` (only `Warp` is tested)
 - Other unary ops: `cwiseRcbrt`, `cwiseInverseCheck`
@@ -128,17 +131,16 @@ The gtest-based test suite in `tests_gtest/` now has **153 passing tests** acros
 - Eigen interop: `toEigen()`, `fromEigen()`
 - Complex op gaps: `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions
 - Integer types beyond `int`
-- IO / `operator<<`
 - CG solver metadata and non-convergent failure path
 
 ### Missing Features (partially addressed)
 
 - **`operator~` and `operator!`** — **FIXED**: Added as member operators in `UnaryOpsPlugin.inl`, wrapping `cwiseBinaryNot` and `cwiseLogicalNot` functors respectively.
-- **CSC/ELLPACK** `operator<<` depends on Eigen interop (CSR has a native implementation)
+- **CSC/ELLPACK `operator<<`** — **FIXED**: Now uses native `io::print_matrix` instead of Eigen, removing the `CUMAT_EIGEN_SUPPORT` dependency.
+- **BLAS-1 operations** (`axpy`, `copy`, `scal`) — **FIXED**: Added cuBLAS wrappers in `CublasApi.h` and exposed as methods on `Matrix`.
 - **ConjugateGradient** does not support `Dynamic` batch sizes
 - No matrix-matrix element-wise `operator*` and `operator/` (use `cwiseMul()` / `cwiseDiv()` to avoid ambiguity with matrix product)
 - Null-matrix specializations flagged as TODO in `Matrix.h:67`
-- BLAS Level 1 operations (`axpy`, `copy`, `scal`) are available via cuBLAS but not exposed as standalone high-level ops
 
 ## Recommended Next Fix Steps
 
@@ -163,17 +165,20 @@ These are the recommended next steps, ordered by impact and dependency. ✅ = co
 9. ✅ **Remaining unary ops** — Added `ArcSin`, `ArcCos`, `ArcTan`, `ArcSinh`, `ArcCosh`, `ArcTanh`, `Rsqrt`, `Cbrt`, `BinaryNot`, `DiagonalView`, `AsDiagonal`
 10. ✅ **Compound assignments** — Added `CompoundDivide`, `CompoundModulo`, `CompoundBitwiseAnd`, `CompoundBitwiseOr`, `CompoundMatrixMultiply`
 
-### Phase 4: Feature Improvements (partial)
+### Phase 4: Feature Improvements ✅ Complete
 
 11. ✅ **`Utils.h::MatrixNear` NaN-safe** — Added NaN guard and empty-matrix early return
 12. ✅ **`operator~` and `operator!`** — Added as member operators on all matrix expression types
+13. ✅ **`operator<<` for CSC/ELLPACK** — Replaced Eigen-dependent printing with native `io::print_matrix`
+14. ✅ **BLAS-1 operations** — Added `axpy()`, `copy()`, `scal()` methods on `Matrix` using cuBLAS
+15. ✅ **CholeskyDecomposition.h:108 typo** — Fixed "leaading minor" → "leading minor"
 
 ### Phase 5: Remaining Work
 
-13. **`operator<<` for CSC/ELLPACK** — Guarded with `CUMAT_EIGEN_SUPPORT`; a native implementation without Eigen dependency remains TODO
-14. **CSC/ELLPACK SpMV testing** — Add SpMV tests for CSC and ELLPACK formats to match the existing CSR test
-15. **Expose BLAS-1 operations** — Add `axpy()`, `copy()`, `scal()` as high-level methods on `MatrixBase`
-16. **CholeskyDecomposition.h:108** — Fix typo "leaading minor" → "leading minor"
+16. **ELLPACK SpMV test** — ✅ Added; CSC SpMV still blocked by missing kernel (TODO)
+17. **CSC SpMV kernel** — Implement the missing CSC matrix-vector product kernel
+18. **Sparse matrix-matrix product** — Not yet implemented for any sparse format
+19. **CSC/ELLPACK native `operator<<` without Eigen** — ✅ Completed; matches CSR pattern
 
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.

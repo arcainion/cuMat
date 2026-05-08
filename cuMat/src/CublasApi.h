@@ -290,6 +290,86 @@ namespace internal
         }
 
 
+        //BLAS-1: AXPY
+
+    private:
+#define CUBLAS_AXPY_FACTORY(scalar, op) \
+        (int n, \
+        const scalar* alpha, \
+        const scalar* x, int incx, \
+        scalar* y, int incy) { \
+            CUBLAS_SAFE_CALL(op(handle_, n, alpha, x, incx, y, incy)); \
+        }
+        CUBLAS_MAKE_WRAPPER(axpy, CUBLAS_AXPY_FACTORY)
+#undef CUBLAS_AXPY_FACTORY
+    public:
+        /**
+        * \brief Computes y = alpha * x + y (in-place on y).
+        * For details, see http://docs.nvidia.com/cuda/cublas/index.html#cublas-lt-t-gt-axpy
+        * \tparam _Scalar the scalar type
+        */
+        template <typename _Scalar>
+        void cublasAxpy(
+            int n,
+            const _Scalar* alpha,
+            const _Scalar* x, int incx,
+            _Scalar* y, int incy)
+        {
+            cublasaxpyImpl(n, alpha, x, incx, y, incy);
+        }
+
+        //BLAS-1: COPY
+
+    private:
+#define CUBLAS_COPY_FACTORY(scalar, op) \
+        (int n, \
+        const scalar* x, int incx, \
+        scalar* y, int incy) { \
+            CUBLAS_SAFE_CALL(op(handle_, n, x, incx, y, incy)); \
+        }
+        CUBLAS_MAKE_WRAPPER(copy, CUBLAS_COPY_FACTORY)
+#undef CUBLAS_COPY_FACTORY
+    public:
+        /**
+        * \brief Computes y = x (in-place on y).
+        * For details, see http://docs.nvidia.com/cuda/cublas/index.html#cublas-lt-t-gt-copy
+        * \tparam _Scalar the scalar type
+        */
+        template <typename _Scalar>
+        void cublasCopy(
+            int n,
+            const _Scalar* x, int incx,
+            _Scalar* y, int incy)
+        {
+            cublascopyImpl(n, x, incx, y, incy);
+        }
+
+        //BLAS-1: SCAL
+
+    private:
+#define CUBLAS_SCAL_FACTORY(scalar, op) \
+        (int n, \
+        const scalar* alpha, \
+        scalar* x, int incx) { \
+            CUBLAS_SAFE_CALL(op(handle_, n, alpha, x, incx)); \
+        }
+        CUBLAS_MAKE_WRAPPER(scal, CUBLAS_SCAL_FACTORY)
+#undef CUBLAS_SCAL_FACTORY
+    public:
+        /**
+        * \brief Computes x = alpha * x (in-place on x).
+        * For details, see http://docs.nvidia.com/cuda/cublas/index.html#cublas-lt-t-gt-scal
+        * \tparam _Scalar the scalar type
+        */
+        template <typename _Scalar>
+        void cublasScal(
+            int n,
+            const _Scalar* alpha,
+            _Scalar* x, int incx)
+        {
+            cublasscalImpl(n, alpha, x, incx);
+        }
+
 #undef CUBLAS_MAKE_WRAPPER
 #undef CUBLAS_MAKE_WRAPPER_COMPLEX
 #undef CUBLAS_SAFE_CALL
