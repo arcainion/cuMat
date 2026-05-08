@@ -141,6 +141,51 @@ The gtest-based test suite in `tests_gtest/` has **132 passing tests** across 11
 - Null-matrix specializations flagged as TODO in `Matrix.h:67`
 - BLAS Level 1 operations (`axpy`, `copy`, `scal`) are available via cuBLAS but not exposed as standalone high-level ops
 
+## Recommended Next Fix Steps
+
+These are the recommended next steps, ordered by impact and dependency:
+
+### Phase 1: Fix Critical Bugs
+
+1. **Fix `BinaryOps.h:43-44` — wrong compile-time column dimension**
+   Change `ColumnsLeft` to `ColumnsRight` in the non-broadcast branch. This affects all element-wise binary operations when the right operand determines column count. Small fix, high impact.
+
+2. **Fix `Iterator.h:246-293` — `CountingInputIterator` ignores stride in arithmetics**
+   Change `++val` to `val += increment` in `operator++(int)`, and fix `operator+=`, `operator-=`, and related arithmetic operators. This class is used by sparse matrix iteration and potentially other iterator-based algorithms.
+
+3. **Fix `TransposeOp.h:147-151` — dangling reference in non-const `coeff()`**
+   Either store the child expression by reference (with lifetime management) or remove the non-const `coeff()` overload if write access to transposed views is not required by the API.
+
+4. **Fix `ProductOp.h:214-220` — wrong batch count for dynamic-sized operands**
+   Replace the compile-time `BatchesLeft == 1` check with a runtime check like `left_.batches() == 1`. This affects batched operations where one operand has `Dynamic` batch count but happens to be 1 at runtime.
+
+### Phase 2: Medium-Priority Issue Fixes
+
+5. **`ConjugateGradient.h:69` — remove `Dynamic` batch size assertion**
+   Change the static assertion to a runtime check or add a fallback loop over batches if the count is only known at runtime.
+
+6. **`SimpleRandom.h:237` — use occupancy-optimized grid size**
+   Change `<<<1, ...>>>` to use the computed grid size from `createLaunchConfig1D` instead of hardcoding 1 block.
+
+7. **`SparseMatrix.h:468-509` — guard CSC/ELLPACK `operator<<` with `CUMAT_EIGEN_SUPPORT`**
+   Add `#if CUMAT_EIGEN_SUPPORT == 1` guards around the Eigen-dependent output code, matching the pattern used in `Matrix.h`.
+
+### Phase 3: Expand Test Coverage
+
+8. **Test edge cases** — Add tests for empty matrices (0×0), single-element (1×1×1), and very large matrices. These are high-risk areas that likely trigger undefined behavior.
+
+9. **Test remaining unary ops** — One test function can exercise all untested ops (`cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseRcbrt`, `cwiseBinaryNot`, `cwiseInverseCheck`).
+
+10. **Test compound assignments** — Add tests for `/=`, `%=`, `&=`, `|=`, and matrix `*=`.
+
+### Phase 4: Feature Improvements
+
+11. **Make `Utils.h::MatrixNear` NaN-safe** — Add a NaN/Inf guard before the max-diff comparison. NaN comparisons always return false, so a matrix with NaN values would incorrectly pass.
+
+12. **Expose BLAS-1 operations** — Add `axpy()`, `copy()`, `scal()` as high-level methods on `MatrixBase`.
+
+13. **CSC/ELLPACK SpMV testing** — Add SpMV tests for CSC and ELLPACK formats to match the existing CSR test.
+
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.
 
