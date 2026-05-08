@@ -203,6 +203,80 @@ These are the recommended next steps, ordered by impact and dependency. ✅ = co
 30. ✅ **`sparseView()` tests** — Added `SparseViewCSR`, `SparseViewCSC`, `SparseViewELLPACK` tests verifying SparseExpressionOp wrapping and sparse product evaluation for all three formats.
 31. ✅ **`sparseView()` `coeff()` bug** — Fixed `SparseExpressionOp::coeff()` at line 63-66 comma-operator bug that returned `batch` instead of the actual coefficient.
 
+### Phase 8: Performance Optimization
+
+32. **Add `__restrict__` to all kernel data pointers** — Add `const __restrict__` qualifier to raw pointer parameters in all 18+ kernel signatures. Frees the compiler from alias assumptions, enabling load/store reordering and reducing register pressure. (`CwiseOp.h`, `ReductionOps.h`, `SparseProductEvaluation.h`, `SparseEvaluation.h`, `DenseLinAlgOps.h`, `SimpleRandom.h`)
+
+33. **Optimize thread reduction kernel** — Replace the stride-N global access in `ReduceThreadKernel` (`ReductionOps.h:317-326`) with a warp-cooperative pattern. Consecutive threads should access consecutive elements rather than striding by N.
+
+34. **Change `CUMAT_STRONG_INLINE` to `__forceinline__`** — Update `Macros.h:201` so that hot-path device functions (cwise assignment, product functor, sparse coefficient access, matrix `coeff()`) are guaranteed inlined by the compiler rather than merely hinted.
+
+35. **Fix `createLaunchConfig1D` grid capping** — For large problem sizes, size the grid to cover the workload in 1-2 passes instead of capping to the occupancy minimum (`Context.h:387`). Add grid-size capping for `createLaunchConfig2D/3D` as well.
+
+36. **Add `__launch_bounds__` to all kernels** — Annotate every custom kernel with `__launch_bounds__` to let the compiler constrain register allocation for better occupancy. Especially impactful for `DeterminantKernel<4>` and `InverseKernel<4>`.
+
+37. **Merge redundant `ProductAssignment` specializations** — Collapse the three near-identical CSR/CSC/ELLPACK `ProductAssignment` structs in `SparseProductEvaluation.h` into a single template keyed on `_SrcLeftSFlags`. Eliminates ~200 lines of duplicated code.
+
+38. **Collapse `DenseStorage` partial specializations** — Replace 7 near-identical `DenseStorage` partial specializations in `Matrix.h:31-439` with a single template using `std::conditional`, eliminating ~280 lines of boilerplate.
+
+39. **Cache sparse index arrays in shared memory** — In CSR/CSC SpMV/SpMM kernels with `Batches > 1`, load `IA[start..end]` into shared memory once per block and reuse across batches instead of re-reading from global memory.
+
+40. **Add a dedicated transfer stream** — Create a second `cudaStream_t` per context for host-device data movement, enabling overlap of transfers with kernel execution.
+
+41. **Eliminate redundant linear→coord→linear conversions in cwise eval** — For direct Matrix-to-Matrix assignments in `CwiseEvaluationKernel` (`CwiseOp.h:74-82`), skip the intermediate (row,col,batch) computation and use the linear index directly.
+
+42. **Replace linear search in sparse index evaluator** — Use binary search on sorted sparse index arrays in `SparseMatrixBase.h:236-349` when evaluating cwise operations on sparse matrices.
+
+43. **Make `copyFromHost`/`copyToHost` optionally async** — Split these methods into sync and async variants so callers that can tolerate deferred synchronization don't pay for an immediate `cudaStreamSynchronize`.
+
+## Performance & Optimization Opportunities
+
+A systematic audit identified several areas where performance can be improved. They are listed by severity.
+
+### High Priority
+
+- **Missing `const __restrict__` on all kernel parameters** — All 18+ kernel functions pass matrix objects by value without `__restrict__` on their internal data pointers. The compiler must assume pointer aliasing, which prevents load/store optimizations and increases register pressure. (`CwiseOp.h`, `ReductionOps.h`, `SparseProductEvaluation.h`, `SparseEvaluation.h`, `DenseLinAlgOps.h`, `SimpleRandom.h`)
+
+- **Thread reduction kernel — stride-N uncoalesced global access** — `ReduceThreadKernel` (`ReductionOps.h:317-326`) assigns one thread per batch with a strided inner loop (`input[O + n]` where `O = i * N`). Consecutive threads access global memory at stride N, achieving a fraction of peak bandwidth. The `ReduceWarpKernel` and `ReduceBlockKernel` handle this correctly via cooperative warp/block access.
+
+- **CSC SpMV/SpMM `atomicAdd` contention** — `CSCMVKernel_StaticBatches` and `CSCMMKernel_StaticBatches` (`SparseProductEvaluation.h:166,211`) use `atomicAdd` for output accumulation, causing severe contention when multiple columns write to the same output row. CSR and ELLPACK kernels avoid this entirely with a one-thread-per-output-element mapping. For CSC products, converting to CSR format is recommended.
+
+- **Sparse matrix index evaluator — linear search in global memory** — `SparseMatrixBase.h:236-349` performs a `for` loop over global-memory `IA` entries to find the column index for every element access. For a cwise operation on a sparse matrix, this means a linear search per element.
+
+- **`CUMAT_STRONG_INLINE` should be `__forceinline__`** — `Macros.h:201` defines `CUMAT_STRONG_INLINE` as `__inline__` (a hint) not `__forceinline__` (a command). Hot-path functions in `CwiseOp.h`, `ProductOp.h`, `SparseMatrix.h`, `Matrix.h`, and `SparseExpressionOp.h` rely on this for inlining. The compiler may conservatively leave these as function calls without the stronger annotation.
+
+- **`DenseStorage` specializations — massive code duplication** — `Matrix.h:31-439` has 7 partial specializations (~315 lines of near-identical boilerplate) for `DenseStorage`. This could be collapsed into a single template using `std::conditional` or a helper base class.
+
+### Medium Priority
+
+- **CSR/CSC/ELLPACK `ProductAssignment` specialization duplication** — Three `ProductAssignment` structs in `SparseProductEvaluation.h` for CSR/CSC/ELLPACK are nearly identical (~200 lines total), differing only in kernel template and launch parameters. They could be merged into one template keyed on `_SrcLeftSFlags`.
+
+- **Redundant global reads of sparse index arrays across batches** — CSR/CSC SpMV kernels read `IA[row]` and `JA[row]` from global memory for every batch (inner batch loop). For `Batches > 1`, these are identical across batches and should be cached in registers or shared memory.
+
+- **Thread reduction kernel selection** — `ReduceThreadKernel` is selected for small problem sizes but has uncoalesced stride-N access. For very small N it may still be faster than launching a warp/block reduction; the threshold values in `ReductionAlgorithmSelection.h` were tuned on an RTX 2070 and may be suboptimal on other architectures.
+
+- **No `__launch_bounds__` on any cuMat kernel** — Every custom kernel lacks `__launch_bounds__` annotations. The NVCC compiler conservatively allocates registers without a `maxThreadsPerBlock` hint, potentially capping occupancy. This is especially impactful for `DeterminantKernel<4>` and `InverseKernel<4>` which have high register pressure.
+
+- **Single stream per thread prevents compute-transfer overlap** — `Context.h:162` creates one `cudaStreamNonBlocking` stream per thread. All kernels, cuBLAS calls, and memcopies are serialized onto this stream. Adding a dedicated transfer stream would enable overlapping host-device data movement with GPU computation.
+
+- **`createLaunchConfig1D` caps grid to occupancy minimum** — `Context.h:387` caps `minGridSize` to the occupancy-computed minimum. For large problems, each thread runs many grid-stride iterations, reducing performance. The grid should be sized to cover the workload in 1-2 passes.
+
+- **`StridedMatrixInputIterator` — 3 divisions + 3 modulos per element** — `Iterator.h:64-78` computes `(linear / stride) % dim` for each of three dimensions on every element access. Division/modulo are ~20-40 cycles each on GPU.
+
+- **Synchronization-heavy debug mode** — `CUMAT_VERBOSE_ERROR_CHECKING=1` (default in Debug) calls `cudaDeviceSynchronize()` after every API call and kernel launch via `CUMAT_SAFE_CALL` and `CUMAT_CHECK_ERROR`. This makes Debug builds fully synchronous.
+
+### Low Priority
+
+- **`CwiseEvaluationKernel` — redundant linear→coord→linear round-trip** — `CwiseOp.h:74-82` converts a linear index to (row,col,batch) via division/modulo, then the `Matrix::coeff()` call converts back to a linear index. For simple Matrix-to-Matrix assignments, the intermediate coordinates are unused.
+
+- **`typeid()` in debug logging forces RTTI emission** — 17 `CUMAT_LOG_DEBUG` calls use `typeid(T).name()` for human-readable kernel names. This forces type_info emission for every template instantiation, adding hundreds of KB to the binary.
+
+- **`createLaunchConfig2D/3D` use 1D thread blocks** — `Context.h:417,444` always creates `dim3(bestBlockSize, 1, 1)` blocks even for 2D/3D workspaces. No 2D block-level spatial locality is exploited.
+
+- **Hardcoded warp size of 32** — `ReductionOps.h:360-387` hardcodes `32` and `0xffffffff` in the warp reduction kernel. While all current NVIDIA GPUs have 32-thread warps, this is not guaranteed by the CUDA model.
+
+- **Dead code** — `Context.h:374-382` has a commented-out hardcoded block size of 256 from an earlier implementation.
+
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.
 
