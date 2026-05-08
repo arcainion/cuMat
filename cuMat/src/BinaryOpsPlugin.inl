@@ -122,7 +122,7 @@ BINARY_OP_ACCESSOR(cwiseLogicalXor)
  * \return an expression of a component-wise binary expression with a custom functor applied per component.
  */
 template<typename Right, typename Functor>
-UnaryOp<_Derived, Functor> binaryExpr(const Right& rhs, const Functor& functor = Functor()) const
+BinaryOp<_Derived, Right, Functor> binaryExpr(const Right& rhs, const Functor& functor = Functor()) const
 {
 	CUMAT_ERROR_IF_NO_NVCC(binaryExpr)
     return BinaryOp<_Derived, Right, Functor>(derived(), rhs.derived(), functor);

@@ -280,3 +280,143 @@ TEST(MatrixTest, Blas1Scal)
     for (float v : host)
         EXPECT_FLOAT_EQ(6.0f, v);
 }
+
+TEST(MatrixTest, Slice)
+{
+    BMatrixXfR m(2, 3, 2);
+    float hostData[12] = {1,2,3,4,5,6,7,8,9,10,11,12};
+    m.copyFromHost(hostData);
+
+    auto s0 = m.slice(0).eval();
+    EXPECT_EQ(2, s0.rows());
+    EXPECT_EQ(3, s0.cols());
+    EXPECT_EQ(1, s0.batches());
+    std::vector<float> host(6);
+    s0.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(1, host[0]);
+    EXPECT_FLOAT_EQ(2, host[1]);
+    EXPECT_FLOAT_EQ(3, host[2]);
+    EXPECT_FLOAT_EQ(4, host[3]);
+    EXPECT_FLOAT_EQ(5, host[4]);
+    EXPECT_FLOAT_EQ(6, host[5]);
+
+    auto s1 = m.slice(1).eval();
+    s1.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(7, host[0]);
+    EXPECT_FLOAT_EQ(8, host[1]);
+    EXPECT_FLOAT_EQ(9, host[2]);
+    EXPECT_FLOAT_EQ(10, host[3]);
+    EXPECT_FLOAT_EQ(11, host[4]);
+    EXPECT_FLOAT_EQ(12, host[5]);
+}
+
+TEST(MatrixTest, Segment)
+{
+    float data[1][5][1] = {{{1}, {2}, {3}, {4}, {5}}};
+    auto v = VectorXfR::fromArray(data);
+
+    auto seg = v.segment<3>(1).eval();
+    EXPECT_EQ(3, seg.rows());
+    std::vector<float> host(3);
+    seg.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(2, host[0]);
+    EXPECT_FLOAT_EQ(3, host[1]);
+    EXPECT_FLOAT_EQ(4, host[2]);
+
+    auto segDyn = v.segment(2, 2).eval();
+    EXPECT_EQ(2, segDyn.rows());
+    segDyn.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(3, host[0]);
+    EXPECT_FLOAT_EQ(4, host[1]);
+}
+
+TEST(MatrixTest, Head)
+{
+    float data[1][5][1] = {{{1}, {2}, {3}, {4}, {5}}};
+    auto v = VectorXfR::fromArray(data);
+
+    auto h = v.head<3>().eval();
+    EXPECT_EQ(3, h.rows());
+    std::vector<float> host(3);
+    h.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(1, host[0]);
+    EXPECT_FLOAT_EQ(2, host[1]);
+    EXPECT_FLOAT_EQ(3, host[2]);
+}
+
+TEST(MatrixTest, Tail)
+{
+    float data[1][5][1] = {{{1}, {2}, {3}, {4}, {5}}};
+    auto v = VectorXfR::fromArray(data);
+
+    auto t = v.tail<3>().eval();
+    EXPECT_EQ(3, t.rows());
+    std::vector<float> host(3);
+    t.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(3, host[0]);
+    EXPECT_FLOAT_EQ(4, host[1]);
+    EXPECT_FLOAT_EQ(5, host[2]);
+}
+
+struct SquareFunctor
+{
+    typedef float ReturnType;
+    __device__ CUMAT_STRONG_INLINE float operator()(const float& v, Index row, Index col, Index batch) const
+    {
+        return v * v;
+    }
+};
+
+TEST(MatrixTest, UnaryExpr)
+{
+    MatrixXfR m = MatrixXfR::Constant(2, 2, 1, 3.0f);
+    auto result = m.unaryExpr(SquareFunctor()).eval();
+    std::vector<float> host(4);
+    result.copyToHost(host.data());
+    for (float v : host)
+        EXPECT_FLOAT_EQ(9.0f, v);
+}
+
+struct AddDoubleFunctor
+{
+    typedef float ReturnType;
+    __device__ CUMAT_STRONG_INLINE float operator()(const float& a, const float& b, Index row, Index col, Index batch) const
+    {
+        return a + 2.0f * b;
+    }
+};
+
+TEST(MatrixTest, BinaryExpr)
+{
+    MatrixXfR a = MatrixXfR::Constant(2, 2, 1, 1.0f);
+    MatrixXfR b = MatrixXfR::Constant(2, 2, 1, 2.0f);
+    auto result = a.binaryExpr(b, AddDoubleFunctor()).eval();
+    std::vector<float> host(4);
+    result.copyToHost(host.data());
+    for (float v : host)
+        EXPECT_FLOAT_EQ(5.0f, v);
+}
+
+struct RowColSumFunctor
+{
+    typedef float ReturnType;
+    __device__ CUMAT_STRONG_INLINE float operator()(Index row, Index col, Index batch) const
+    {
+        return static_cast<float>(row + col);
+    }
+};
+
+TEST(MatrixTest, NullaryExpr)
+{
+    auto m = MatrixXfR::NullaryExpr(2, 3, 1, RowColSumFunctor()).eval();
+    EXPECT_EQ(2, m.rows());
+    EXPECT_EQ(3, m.cols());
+    std::vector<float> host(6);
+    m.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(0, host[0]);
+    EXPECT_FLOAT_EQ(1, host[1]);
+    EXPECT_FLOAT_EQ(2, host[2]);
+    EXPECT_FLOAT_EQ(1, host[3]);
+    EXPECT_FLOAT_EQ(2, host[4]);
+    EXPECT_FLOAT_EQ(3, host[5]);
+}

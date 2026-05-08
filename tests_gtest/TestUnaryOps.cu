@@ -421,3 +421,28 @@ TEST(UnaryOpTest, AsDiagonal)
     EXPECT_FLOAT_EQ(2, host[4]);
     EXPECT_FLOAT_EQ(3, host[8]);
 }
+
+TEST(UnaryOpTest, InverseCheck)
+{
+    float data[1][1][4] = {{{0.0f, 1.0f, 2.0f, 4.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseInverseCheck().eval();
+    std::vector<float> host(4);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(1.0f, host[0]);
+    EXPECT_FLOAT_EQ(1.0f, host[1]);
+    EXPECT_FLOAT_EQ(0.5f, host[2]);
+    EXPECT_FLOAT_EQ(0.25f, host[3]);
+}
+
+TEST(UnaryOpTest, Rcbrt)
+{
+    float data[1][1][3] = {{{1.0f, 8.0f, 27.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseRcbrt().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(1.0f, host[0]);
+    EXPECT_FLOAT_EQ(0.5f, host[1]);
+    EXPECT_FLOAT_EQ(1.0f / 3.0f, host[2]);
+}

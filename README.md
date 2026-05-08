@@ -109,25 +109,27 @@ The following bugs were identified during a source code audit:
 - `Context.h:371` — `createLaunchConfig1D` silently truncates `Index` (64-bit) to `unsigned int` on large matrices.
 - `ReductionOps.h:331-350` — Thread reduction kernel doesn't use the initial value; undefined behavior for empty batches.
 
-### Test Coverage Gaps (27 new tests added, 157 total)
+### Test Coverage Gaps (36 new tests added, 166 total)
 
-The gtest-based test suite in `tests_gtest/` now has **157 passing tests** across 11 test suites. The following areas were recently addressed:
+The gtest-based test suite in `tests_gtest/` now has **166 passing tests** across 11 test suites. The following areas were recently addressed:
 
-**Newly tested (Phase 2):**
-- Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseBinaryNot`, `cwiseLogicalNot`
+**Newly tested (Phase 3):**
+- Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseBinaryNot`, `cwiseLogicalNot`, `cwiseRcbrt`, `cwiseInverseCheck`
 - Compound assignment operators: `/=`, `%=`, `&=`, `|=`, matrix `*=`
 - Edge cases: empty matrices (0×0), single-element matrices, matrix of zeros, scalar multiplication, zero-sized batches
 - `diagonal()` and `asDiagonal()`
 - ELLPACK SpMV: `ELLPACKMatrixVectorProduct`
 - BLAS-1 operations: `Blas1Axpy`, `Blas1Copy`, `Blas1Scal`
+- Batch slicing: `slice()`, `segment()`, `head()`, `tail()`
+- Custom expressions: `unaryExpr()`, `binaryExpr()`, `NullaryExpr()`
+
+**Bug fix:**
+- `BinaryOpsPlugin.inl:124-125` — Fixed `binaryExpr()` return type from `UnaryOp` to `BinaryOp` (was dropping the custom functor)
 
 **Still untested:**
 - CSC SpMV (no kernel implementation yet — marked TODO)
 - Sparse matrix-matrix product, `sparseView()`, `direct()`
-- Batch slicing: `slice()`, `segment()`, `head()`, `tail()`
 - Reduction algorithm variants: `Segmented`, `Thread`, `Block<N>`, `Device<N>` (only `Warp` is tested)
-- Other unary ops: `cwiseRcbrt`, `cwiseInverseCheck`
-- Custom expression operations: `unaryExpr()`, `binaryExpr()`, `NullaryExpr()`
 - Eigen interop: `toEigen()`, `fromEigen()`
 - Complex op gaps: `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions
 - Integer types beyond `int`
@@ -173,12 +175,22 @@ These are the recommended next steps, ordered by impact and dependency. ✅ = co
 14. ✅ **BLAS-1 operations** — Added `axpy()`, `copy()`, `scal()` methods on `Matrix` using cuBLAS
 15. ✅ **CholeskyDecomposition.h:108 typo** — Fixed "leaading minor" → "leading minor"
 
-### Phase 5: Remaining Work
+### Phase 5: Expand Test Coverage ✅ Complete
 
-16. **ELLPACK SpMV test** — ✅ Added; CSC SpMV still blocked by missing kernel (TODO)
-17. **CSC SpMV kernel** — Implement the missing CSC matrix-vector product kernel
-18. **Sparse matrix-matrix product** — Not yet implemented for any sparse format
-19. **CSC/ELLPACK native `operator<<` without Eigen** — ✅ Completed; matches CSR pattern
+16. ✅ **ELLPACK SpMV test** — Added `ELLPACKMatrixVectorProduct`
+17. ✅ **Batch slicing** — Added `Slice`, `Segment`, `Head`, `Tail` tests
+18. ✅ **Remaining unary ops** — Added `InverseCheck`, `Rcbrt` tests
+19. ✅ **Custom expressions** — Added `UnaryExpr`, `BinaryExpr`, `NullaryExpr` tests
+20. ✅ **Bug fix: `binaryExpr` return type** — Fixed return type from `UnaryOp` to `BinaryOp`
+
+### Phase 6: Remaining Work
+
+21. **CSC SpMV kernel** — Implement the missing CSC matrix-vector product kernel (blocked by need for atomic operations or different thread mapping)
+22. **Sparse matrix-matrix product** — Not yet implemented for any sparse format
+23. **Reduction algorithm variants** — Test `Segmented`, `Thread`, `Block<N>`, `Device<N>` variants
+24. **Eigen interop tests** — Test `toEigen()` / `fromEigen()` when `CUMAT_EIGEN_SUPPORT` is enabled
+25. **Complex op gaps** — `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions
+26. **CG solver metadata and non-convergent failure path**
 
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.
