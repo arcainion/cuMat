@@ -108,9 +108,9 @@ The following bugs were identified during a source code audit:
 - `ReductionOps.h:331-350` — **FIXED**: Thread reduction kernel now accepts and uses the `initial` value instead of reading the first element directly.
 - `EigenInteropHelpers.h` — **FIXED**: Uncommented scalar type conversion in `MatrixCuMatToEigen`/`MatrixEigenToCuMat` so `toEigen()` returns standard Eigen types (e.g., `Eigen::MatrixXcf` instead of `Eigen::Matrix<cfloat,...>`). Fixed `toEigen()` to use `reinterpret_cast` for the type conversion.
 
-### Test Coverage Gaps (59 new tests added, 189 total)
+### Test Coverage Gaps (62 new tests added, 192 total)
 
-The gtest-based test suite in `tests_gtest/` now has **189 passing tests** across 13 test suites (12 prior + 1 new IntegerTest). The following areas were recently addressed:
+The gtest-based test suite in `tests_gtest/` now has **192 passing tests** across 13 test suites. The following areas were recently addressed:
 
 **Newly tested (Phase 3):**
 - Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseBinaryNot`, `cwiseLogicalNot`, `cwiseRcbrt`, `cwiseInverseCheck`
@@ -131,9 +131,12 @@ The gtest-based test suite in `tests_gtest/` now has **189 passing tests** acros
 - Complex op gaps (`cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions) — **ADDED** 10 tests
 - CG solver metadata (`iterations()`, `error()`) and non-convergent path — **ADDED** 3 tests
 - CSR sparse matrix-dense matrix product (SpMM) — **ADDED** kernel and 1 test
-- `sparseView()` with CSR and CSC — **ADDED** 2 tests verifying SparseExpressionOp wrapping and sparse product evaluation
+ - `sparseView()` with CSR, CSC, and ELLPACK — **ADDED** 3 tests verifying SparseExpressionOp wrapping and sparse product evaluation
 - `direct()` with CSR — **ADDED** 1 test verifying direct-coefficient-access optimization with `sparseView`
 - Integer types beyond `int` — **ADDED** 3 tests for `long` and `long long` matrices (basic ops + reductions)
+- CSC SpMM — **ADDED** kernel and 1 test (fixed expected values: were copied from CSR test without adjustment)
+- ELLPACK SpMM — **ADDED** kernel and 1 test
+- `SparseExpressionOp::coeff()` comma-operator bug — **FIXED** (was returning `batch` instead of the coefficient)
 
 ### Missing Features (partially addressed)
 
@@ -186,7 +189,7 @@ These are the recommended next steps, ordered by impact and dependency. ✅ = co
 ### Phase 6: Expand Test Coverage ✅ Complete
 
 21. ✅ **CSC SpMV kernel** — Implemented as `CSCMVKernel_StaticBatches` with one thread per column using `atomicAdd` for output accumulation. Both `SparseMatrix` and `SparseExpressionOp` specializations added. Tested in `CSCMatrixVectorProduct`.
-22. ✅ **CSR sparse matrix-dense matrix product (SpMM)** — Implemented CSR SpMM kernel (`CSRMMKernel_StaticBatches`) with 2D thread mapping. Added `ProductAssignment` dispatch with runtime vector/matrix detection. Tested in `CSRMatrixMatrixProduct` (3×2 dense result). CSC and ELLPACK SpMM remain unimplemented.
+22. ✅ **CSR sparse matrix-dense matrix product (SpMM)** — Implemented CSR SpMM kernel (`CSRMMKernel_StaticBatches`) with 2D thread mapping. Added `ProductAssignment` dispatch with runtime vector/matrix detection. Tested in `CSRMatrixMatrixProduct` (3×2 dense result).
 23. ✅ **Reduction algorithm variants** — Tests added for `Segmented`, `Thread`, `Block<N>`, `Device<N>` variants (5 tests)
 24. ✅ **Eigen interop tests** — Tests added for `toEigen()` / `fromEigen()` when `CUMAT_EIGEN_SUPPORT` is enabled (5 tests)
 25. ✅ **Complex op gaps** — Tests added for `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions (10 tests)
@@ -194,11 +197,11 @@ These are the recommended next steps, ordered by impact and dependency. ✅ = co
 27. ✅ **`sparseView()` / `direct()` tests** — Added `SparseViewCSR`, `SparseViewCSC`, `DirectAccessCSR` tests verifying SparseExpressionOp wrapping, sparse product evaluation, and the direct-coefficient-access optimization
 28. ✅ **Integer types beyond `int`** — Added `LongMatrixBasicOps`, `LongMatrixReductions`, `LongLongMatrixBasicOps` tests for `long` and `long long` types
 
-### Phase 7: Remaining Work
+### Phase 7: Remaining Work ✅ Complete
 
-29. **CSC and ELLPACK SpMM kernels** — Implement sparse matrix-dense matrix product for CSC and ELLPACK formats
-30. **`sparseView()` with ELLPACK** — Test `sparseView` using ELLPACK format
-31. **`sparseView()` `coeff()` bug** — `SparseExpressionOp::coeff()` at line 63-66 has a comma-operator bug that returns `batch` instead of the actual coefficient; only `getSparseCoeff()` works correctly
+29. ✅ **CSC and ELLPACK SpMM kernels** — Implemented sparse matrix-dense matrix product for CSC (`CSCMMKernel_StaticBatches`) and ELLPACK (`ELLPACKMMKernel_StaticBatches`) formats. Tested in `CSCMatrixMatrixProduct` and `ELLPACKMatrixMatrixProduct`.
+30. ✅ **`sparseView()` tests** — Added `SparseViewCSR`, `SparseViewCSC`, `SparseViewELLPACK` tests verifying SparseExpressionOp wrapping and sparse product evaluation for all three formats.
+31. ✅ **`sparseView()` `coeff()` bug** — Fixed `SparseExpressionOp::coeff()` at line 63-66 comma-operator bug that returned `batch` instead of the actual coefficient.
 
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.
