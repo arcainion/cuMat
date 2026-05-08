@@ -12,7 +12,7 @@ namespace internal
 	namespace kernels
 	{
 		template <typename T, typename M, AssignmentMode Mode>
-		__global__ void CwiseCSREvaluationKernel(dim3 virtual_size, const T expr, M matrix)
+		__global__ void __launch_bounds__(256) CwiseCSREvaluationKernel(dim3 virtual_size, const T expr, M matrix)
 		{
 			const int* JA = matrix.getSparsityPattern().JA.data();
 			const int* IA = matrix.getSparsityPattern().IA.data();
@@ -33,7 +33,7 @@ namespace internal
 			CUMAT_KERNEL_2D_LOOP_END
 		}
 		template <typename T, typename M, AssignmentMode Mode>
-		__global__ void CwiseCSCEvaluationKernel(dim3 virtual_size, const T expr, M matrix)
+		__global__ void __launch_bounds__(256) CwiseCSCEvaluationKernel(dim3 virtual_size, const T expr, M matrix)
 		{
 			const int* JA = matrix.getSparsityPattern().JA.data();
 			const int* IA = matrix.getSparsityPattern().IA.data();
@@ -54,7 +54,7 @@ namespace internal
 			CUMAT_KERNEL_2D_LOOP_END
 		}
 		template <typename T, typename M, AssignmentMode Mode>
-		__global__ void CwiseELLPACKEvaluationKernel(dim3 virtual_size, const T expr, M matrix)
+		__global__ void __launch_bounds__(256) CwiseELLPACKEvaluationKernel(dim3 virtual_size, const T expr, M matrix)
 		{
 			const SparsityPattern<SparseFlags::ELLPACK>::IndexMatrix indices = matrix.getSparsityPattern().indices;
 			Index nnzPerRow = matrix.getSparsityPattern().nnzPerRow;

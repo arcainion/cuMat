@@ -381,7 +381,7 @@ namespace internal
 		template <typename T, typename M, int Dims,
 			typename Scalar = typename internal::traits<T>::Scalar,
 			int TFlags = internal::traits<T>::Flags, int MFlags = internal::traits<M>::Flags>
-			__global__ void DeterminantKernel(dim3 virtual_size, const T expr, M matrix)
+			__global__ void __launch_bounds__(256) DeterminantKernel(dim3 virtual_size, const T expr, M matrix)
 		{
 			CUMAT_KERNEL_1D_LOOP(index, virtual_size)
 				DeviceMatrix<Scalar, Dims, TFlags> in = loadMat<Dims, T, Scalar>(expr, index);
@@ -485,7 +485,7 @@ namespace internal
 		template <typename MatIn, typename MatOut, int Dims,
 			typename Scalar = typename internal::traits<MatIn>::Scalar,
 			int InFlags = internal::traits<MatIn>::Flags, int OutFlags = internal::traits<MatOut>::Flags>
-		__global__ void InverseKernel(dim3 virtual_size, const MatIn expr, MatOut matOut) //TODO
+		__global__ void __launch_bounds__(256) InverseKernel(dim3 virtual_size, const MatIn expr, MatOut matOut) //TODO
 		{
 			typedef DeviceMatrix<Scalar, Dims, InFlags> Min;
 			typedef DeviceMatrix<Scalar, Dims, OutFlags> Mout;
@@ -499,7 +499,7 @@ namespace internal
 		template <typename MatIn, typename MatOut, typename DetOut, int Dims,
 			typename Scalar = typename internal::traits<MatIn>::Scalar,
 			int InFlags = internal::traits<MatIn>::Flags, int OutFlags = internal::traits<MatOut>::Flags>
-		__global__ void InverseKernelWithDet(dim3 virtual_size, const MatIn expr, MatOut matOut, DetOut detOut) //TODO
+		__global__ void __launch_bounds__(256) InverseKernelWithDet(dim3 virtual_size, const MatIn expr, MatOut matOut, DetOut detOut) //TODO
 		{
 			typedef DeviceMatrix<Scalar, Dims, InFlags> Min;
 			typedef DeviceMatrix<Scalar, Dims, OutFlags> Mout;

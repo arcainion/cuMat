@@ -25,410 +25,84 @@ CUMAT_NAMESPACE_BEGIN
 namespace internal {
 
 	/**
-	 * \brief The storage for the matrix
+	 * \brief Collapsed storage for the matrix, handles all combinations
+	 * of compile-time fixed and runtime Dynamic dimensions.
 	 */
-	template <typename _Scalar, int _Rows, int _Columns, int _Batches>
-	class DenseStorage;
-
-	//purely fixed size
 	template <typename _Scalar, int _Rows, int _Columns, int _Batches>
 	class DenseStorage
 	{
+		static constexpr bool IsRowsDynamic = (_Rows == Dynamic);
+		static constexpr bool IsColsDynamic = (_Columns == Dynamic);
+		static constexpr bool IsBatchesDynamic = (_Batches == Dynamic);
+
 		DevicePointer<_Scalar> data_;
+		Index dynRows_ = 0;
+		Index dynCols_ = 0;
+		Index dynBatches_ = 0;
+
+		Index computeSize(Index rows, Index cols, Index batches) const {
+			Index r = IsRowsDynamic ? rows : _Rows;
+			Index c = IsColsDynamic ? cols : _Columns;
+			Index b = IsBatchesDynamic ? batches : _Batches;
+			return (r > 0 ? r : 0) * (c > 0 ? c : 0) * (b > 0 ? b : 0);
+		}
+
 	public:
-		DenseStorage() : data_(Index(_Rows) * _Columns * _Batches) {}
-        __host__ __device__
-		DenseStorage(const DenseStorage& other) : data_(other.data_) {}
-		DenseStorage& operator=(const DenseStorage& other)
-		{
-			if (this != &other) data_ = other.data_;
-			return *this;
-		}
-		DenseStorage(Index rows, Index cols, Index batches)
-			: data_(Index(_Rows) * _Columns * _Batches)
-		{
-			CUMAT_ASSERT_ARGUMENT(rows == _Rows && cols == _Columns && batches == _Batches);
-		}
-		DenseStorage(const DevicePointer<_Scalar>& data, Index rows, Index cols, Index batches)
-			: data_(data)
-		{
-			CUMAT_ASSERT_ARGUMENT(rows == _Rows && cols == _Columns && batches == _Batches);
-		}
-		void swap(DenseStorage& other) { std::swap(data_, other.data_); }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index rows() { return _Rows; }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index cols() { return _Columns; }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index batches() { return _Batches; }
-		__host__ __device__ CUMAT_STRONG_INLINE const _Scalar *data() const { return data_.pointer(); }
-		__host__ __device__ CUMAT_STRONG_INLINE _Scalar *data() { return data_.pointer(); }
-		CUMAT_STRONG_INLINE const DevicePointer<_Scalar>& dataPointer() const { return data_; }
-		CUMAT_STRONG_INLINE DevicePointer<_Scalar>& dataPointer() { return data_; }
-	};
+		DenseStorage() : data_(computeSize(0, 0, 0)) {}
 
-	//TODO: do I need specializations for null-matrices?
-
-	//partly dynamic size
-
-	//dynamic number of rows
-	template <typename _Scalar, int _Columns, int _Batches>
-	class DenseStorage<_Scalar, Dynamic, _Columns, _Batches>
-	{
-		DevicePointer<_Scalar> data_;
-		Index rows_;
-	public:
-		DenseStorage() : data_(), rows_(0) {}
-        __host__ __device__
-		DenseStorage(const DenseStorage& other) : data_(other.data_), rows_(other.rows_) {}
-        __host__ __device__
-		DenseStorage& operator=(const DenseStorage& other)
-		{
-			if (this != &other) {
-				data_ = other.data_;
-				rows_ = other.rows_;
-			}
-			return *this;
-		}
-		DenseStorage(Index rows, Index cols, Index batches)
-			: data_((rows>=0?rows:0) * _Columns * _Batches)
-			, rows_(rows)
-		{
-			CUMAT_ASSERT_ARGUMENT(cols == _Columns && batches == _Batches);
-			CUMAT_ASSERT_ARGUMENT(rows >= 0);
-		}
-		DenseStorage(const DevicePointer<_Scalar>& data, Index rows, Index cols, Index batches)
-			: data_(data)
-			, rows_(rows)
-		{
-			CUMAT_ASSERT_ARGUMENT(cols == _Columns && batches == _Batches);
-			CUMAT_ASSERT_ARGUMENT(rows >= 0);
-		}
-		void swap(DenseStorage& other) noexcept
-		{
-			std::swap(data_, other.data_);
-			std::swap(rows_, other.rows_);
-		}
-		__host__ __device__ CUMAT_STRONG_INLINE Index rows() const { return rows_; }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index cols() { return _Columns; }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index batches() { return _Batches; }
-		__host__ __device__ CUMAT_STRONG_INLINE const _Scalar *data() const { return data_.pointer(); }
-		__host__ __device__ CUMAT_STRONG_INLINE _Scalar *data() { return data_.pointer(); }
-		CUMAT_STRONG_INLINE const DevicePointer<_Scalar>& dataPointer() const { return data_; }
-		CUMAT_STRONG_INLINE DevicePointer<_Scalar>& dataPointer() { return data_; }
-	};
-
-	//dynamic number of cols
-	template <typename _Scalar, int _Rows, int _Batches>
-	class DenseStorage<_Scalar, _Rows, Dynamic, _Batches>
-	{
-		DevicePointer<_Scalar> data_;
-		Index cols_;
-	public:
-		DenseStorage() : data_(), cols_(0) {}
-        __host__ __device__
-		DenseStorage(const DenseStorage& other) : data_(other.data_), cols_(other.cols_) {}
-        __host__ __device__
-		DenseStorage& operator=(const DenseStorage& other)
-		{
-			if (this != &other) {
-				data_ = other.data_;
-				cols_ = other.cols_;
-			}
-			return *this;
-		}
-		DenseStorage(Index rows, Index cols, Index batches)
-			: data_(_Rows * (cols>=0?cols:0) * _Batches)
-			, cols_(cols)
-		{
-			CUMAT_ASSERT_ARGUMENT(rows == _Rows && batches == _Batches);
-			CUMAT_ASSERT_ARGUMENT(cols >= 0);
-		}
-		DenseStorage(const DevicePointer<_Scalar>& data, Index rows, Index cols, Index batches)
-			: data_(data)
-			, cols_(cols)
-		{
-			CUMAT_ASSERT_ARGUMENT(rows == _Rows && batches == _Batches);
-			CUMAT_ASSERT_ARGUMENT(cols >= 0);
-		}
-		void swap(DenseStorage& other) noexcept
-		{
-			std::swap(data_, other.data_);
-			std::swap(cols_, other.cols_);
-		}
-		static __host__ __device__ CUMAT_STRONG_INLINE Index rows() { return _Rows; }
-		__host__ __device__ CUMAT_STRONG_INLINE Index cols() const { return cols_; }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index batches() { return _Batches; }
-		__host__ __device__ CUMAT_STRONG_INLINE const _Scalar *data() const { return data_.pointer(); }
-		__host__ __device__ CUMAT_STRONG_INLINE _Scalar *data() { return data_.pointer(); }
-		CUMAT_STRONG_INLINE const DevicePointer<_Scalar>& dataPointer() const { return data_; }
-		CUMAT_STRONG_INLINE DevicePointer<_Scalar>& dataPointer() { return data_; }
-	};
-
-	//dynamic number of batches
-	template <typename _Scalar, int _Rows, int _Columns>
-	class DenseStorage<_Scalar, _Rows, _Columns, Dynamic>
-	{
-		DevicePointer<_Scalar> data_;
-		Index batches_;
-	public:
-		DenseStorage() : data_(), batches_(0) {}
-        __host__ __device__
-		DenseStorage(const DenseStorage& other) : data_(other.data_), batches_(other.batches_) {}
-        __host__ __device__
-		DenseStorage& operator=(const DenseStorage& other)
-		{
-			if (this != &other) {
-				data_ = other.data_;
-				batches_ = other.batches_;
-			}
-			return *this;
-		}
-		DenseStorage(Index rows, Index cols, Index batches)
-			: data_(Index(_Rows) * _Columns * (batches>=0?batches:0))
-			, batches_(batches)
-		{
-			CUMAT_ASSERT_ARGUMENT(rows == _Rows && cols == _Columns);
-			CUMAT_ASSERT_ARGUMENT(batches >= 0);
-		}
-		DenseStorage(const DevicePointer<_Scalar>& data, Index rows, Index cols, Index batches)
-			: data_(data)
-			, batches_(batches)
-		{
-			CUMAT_ASSERT_ARGUMENT(rows == _Rows && cols == _Columns);
-			CUMAT_ASSERT_ARGUMENT(batches >= 0);
-		}
-		void swap(DenseStorage& other) noexcept
-		{
-			std::swap(data_, other.data_);
-			std::swap(batches_, other.batches_);
-		}
-		static __host__ __device__ CUMAT_STRONG_INLINE Index rows() { return _Rows; }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index cols() { return _Columns; }
-		__host__ __device__ CUMAT_STRONG_INLINE Index batches() const { return batches_; }
-		__host__ __device__ CUMAT_STRONG_INLINE const _Scalar *data() const { return data_.pointer(); }
-		__host__ __device__ CUMAT_STRONG_INLINE _Scalar *data() { return data_.pointer(); }
-		CUMAT_STRONG_INLINE const DevicePointer<_Scalar>& dataPointer() const { return data_; }
-		CUMAT_STRONG_INLINE DevicePointer<_Scalar>& dataPointer() { return data_; }
-	};
-
-	//dynamic number of rows and cols
-	template <typename _Scalar, int _Batches>
-	class DenseStorage<_Scalar, Dynamic, Dynamic, _Batches>
-	{
-		DevicePointer<_Scalar> data_;
-		Index rows_;
-		Index cols_;
-	public:
-		DenseStorage() : data_(), rows_(0), cols_(0) {}
-        __host__ __device__
-		DenseStorage(const DenseStorage& other) : data_(other.data_), rows_(other.rows_), cols_(other.cols_) {}
-        __host__ __device__
-		DenseStorage& operator=(const DenseStorage& other)
-		{
-			if (this != &other) {
-				data_ = other.data_;
-				rows_ = other.rows_;
-				cols_ = other.cols_;
-			}
-			return *this;
-		}
-		DenseStorage(Index rows, Index cols, Index batches)
-			: data_((rows>=0?rows:0) * (cols>=0?cols:0) * _Batches)
-			, rows_(rows)
-			, cols_(cols)
-		{
-			CUMAT_ASSERT_ARGUMENT(batches == _Batches);
-			CUMAT_ASSERT_ARGUMENT(rows >= 0);
-			CUMAT_ASSERT_ARGUMENT(cols >= 0);
-		}
-		DenseStorage(const DevicePointer<_Scalar>& data, Index rows, Index cols, Index batches)
-			: data_(data)
-			, rows_(rows)
-			, cols_(cols)
-		{
-			CUMAT_ASSERT_ARGUMENT(batches == _Batches);
-			CUMAT_ASSERT_ARGUMENT(rows >= 0);
-			CUMAT_ASSERT_ARGUMENT(cols >= 0);
-		}
-		void swap(DenseStorage& other) noexcept
-		{
-			std::swap(data_, other.data_);
-			std::swap(rows_, other.rows_);
-			std::swap(cols_, other.cols_);
-		}
-		__host__ __device__ CUMAT_STRONG_INLINE Index rows() const { return rows_; }
-		__host__ __device__ CUMAT_STRONG_INLINE Index cols() const { return cols_; }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index batches() { return _Batches; }
-		__host__ __device__ CUMAT_STRONG_INLINE const _Scalar *data() const { return data_.pointer(); }
-		__host__ __device__ CUMAT_STRONG_INLINE _Scalar *data() { return data_.pointer(); }
-		CUMAT_STRONG_INLINE const DevicePointer<_Scalar>& dataPointer() const { return data_; }
-		CUMAT_STRONG_INLINE DevicePointer<_Scalar>& dataPointer() { return data_; }
-	};
-
-	//dynamic number of rows and batches
-	template <typename _Scalar, int _Columns>
-	class DenseStorage<_Scalar, Dynamic, _Columns, Dynamic>
-	{
-		DevicePointer<_Scalar> data_;
-		Index rows_;
-		Index batches_;
-	public:
-		DenseStorage() : data_(), rows_(0), batches_(0) {}
-        __host__ __device__
-		DenseStorage(const DenseStorage& other) : data_(other.data_), rows_(other.rows_), batches_(other.batches_) {}
-        __host__ __device__
-		DenseStorage& operator=(const DenseStorage& other)
-		{
-			if (this != &other) {
-				data_ = other.data_;
-				rows_ = other.rows_;
-				batches_ = other.batches_;
-			}
-			return *this;
-		}
-		DenseStorage(Index rows, Index cols, Index batches)
-			: data_((rows>=0?rows:0) * _Columns * (batches>=0?batches:0))
-			, rows_(rows)
-			, batches_(batches)
-		{
-			CUMAT_ASSERT_ARGUMENT(cols == _Columns);
-			CUMAT_ASSERT_ARGUMENT(rows >= 0);
-			CUMAT_ASSERT_ARGUMENT(batches >= 0);
-		}
-		DenseStorage(const DevicePointer<_Scalar>& data, Index rows, Index cols, Index batches)
-			: data_(data)
-			, rows_(rows)
-			, batches_(batches)
-		{
-			CUMAT_ASSERT_ARGUMENT(cols == _Columns);
-			CUMAT_ASSERT_ARGUMENT(rows >= 0);
-			CUMAT_ASSERT_ARGUMENT(batches >= 0);
-		}
-		void swap(DenseStorage& other) noexcept
-		{
-			std::swap(data_, other.data_);
-			std::swap(rows_, other.rows_);
-			std::swap(batches_, other.batches_);
-		}
-		__host__ __device__ CUMAT_STRONG_INLINE Index rows() const { return rows_; }
-		static __host__ __device__ CUMAT_STRONG_INLINE Index cols() { return _Columns; }
-		__host__ __device__ CUMAT_STRONG_INLINE Index batches() const { return batches_; }
-		__host__ __device__ CUMAT_STRONG_INLINE const _Scalar *data() const { return data_.pointer(); }
-		__host__ __device__ CUMAT_STRONG_INLINE _Scalar *data() { return data_.pointer(); }
-		CUMAT_STRONG_INLINE const DevicePointer<_Scalar>& dataPointer() const { return data_; }
-		CUMAT_STRONG_INLINE DevicePointer<_Scalar>& dataPointer() { return data_; }
-	};
-
-	//dynamic number of cols and batches
-	template <typename _Scalar, int _Rows>
-	class DenseStorage<_Scalar, _Rows, Dynamic, Dynamic>
-	{
-		DevicePointer<_Scalar> data_;
-		Index cols_;
-		Index batches_;
-	public:
-		DenseStorage() : data_(), cols_(0), batches_(0) {}
-        __host__ __device__
-		DenseStorage(const DenseStorage& other) : data_(other.data_), cols_(other.cols_), batches_(other.batches_) {}
-        __host__ __device__
-		DenseStorage& operator=(const DenseStorage& other)
-		{
-			if (this != &other) {
-				data_ = other.data_;
-				cols_ = other.cols_;
-				batches_ = other.batches_;
-			}
-			return *this;
-		}
-		DenseStorage(Index rows, Index cols, Index batches)
-			: data_(Index(_Rows) * (cols>=0?cols:0) * (batches>=0?batches:0))
-			, cols_(cols)
-			, batches_(batches)
-		{
-			CUMAT_ASSERT_ARGUMENT(rows == _Rows);
-			CUMAT_ASSERT_ARGUMENT(cols >= 0);
-			CUMAT_ASSERT_ARGUMENT(batches >= 0);
-		}
-		DenseStorage(const DevicePointer<_Scalar>& data, Index rows, Index cols, Index batches)
-			: data_(data)
-			, cols_(cols)
-			, batches_(batches)
-		{
-			CUMAT_ASSERT_ARGUMENT(rows == _Rows);
-			CUMAT_ASSERT_ARGUMENT(cols >= 0);
-			CUMAT_ASSERT_ARGUMENT(batches >= 0);
-		}
-		void swap(DenseStorage& other) noexcept
-		{
-			std::swap(data_, other.data_);
-			std::swap(cols_, other.cols_);
-			std::swap(batches_, other.batches_);
-		}
-		static __host__ __device__ CUMAT_STRONG_INLINE Index rows() { return _Rows; }
-		__host__ __device__ CUMAT_STRONG_INLINE Index cols() const { return cols_; }
-		__host__ __device__ CUMAT_STRONG_INLINE Index batches() const { return batches_; }
-		__host__ __device__ CUMAT_STRONG_INLINE const _Scalar *data() const { return data_.pointer(); }
-		__host__ __device__ CUMAT_STRONG_INLINE _Scalar *data() { return data_.pointer(); }
-		CUMAT_STRONG_INLINE const DevicePointer<_Scalar>& dataPointer() const { return data_; }
-		CUMAT_STRONG_INLINE DevicePointer<_Scalar>& dataPointer() { return data_; }
-	};
-
-	//everything is dynamic
-	template <typename _Scalar>
-	class DenseStorage<_Scalar, Dynamic, Dynamic, Dynamic>
-	{
-		DevicePointer<_Scalar> data_;
-		Index rows_;
-		Index cols_;
-		Index batches_;
-	public:
-		DenseStorage() : data_(), rows_(0), cols_(0), batches_(0) {}
-        __host__ __device__
-		DenseStorage(const DenseStorage& other) 
+		__host__ __device__
+		DenseStorage(const DenseStorage& other)
 			: data_(other.data_)
-			, rows_(other.rows_)
-			, cols_(other.cols_)
-			, batches_(other.batches_)
+			, dynRows_(other.dynRows_)
+			, dynCols_(other.dynCols_)
+			, dynBatches_(other.dynBatches_)
 		{}
-        __host__ __device__
+
+		__host__ __device__
 		DenseStorage& operator=(const DenseStorage& other)
 		{
 			if (this != &other) {
 				data_ = other.data_;
-				rows_ = other.rows_;
-				cols_ = other.cols_;
-				batches_ = other.batches_;
+				dynRows_ = other.dynRows_;
+				dynCols_ = other.dynCols_;
+				dynBatches_ = other.dynBatches_;
 			}
 			return *this;
 		}
+
 		DenseStorage(Index rows, Index cols, Index batches)
-			: data_((rows>=0?rows:0) * (cols>=0?cols:0) * (batches>=0?batches:0))
-			, rows_(rows)
-			, cols_(cols)
-			, batches_(batches)
+			: data_(computeSize(rows, cols, batches))
 		{
-			CUMAT_ASSERT_ARGUMENT(rows >= 0);
-			CUMAT_ASSERT_ARGUMENT(cols >= 0);
-			CUMAT_ASSERT_ARGUMENT(batches >= 0);
+			if (IsRowsDynamic) { CUMAT_ASSERT_ARGUMENT(rows >= 0); dynRows_ = rows; }
+			else { CUMAT_ASSERT_ARGUMENT(rows == _Rows); }
+			if (IsColsDynamic) { CUMAT_ASSERT_ARGUMENT(cols >= 0); dynCols_ = cols; }
+			else { CUMAT_ASSERT_ARGUMENT(cols == _Columns); }
+			if (IsBatchesDynamic) { CUMAT_ASSERT_ARGUMENT(batches >= 0); dynBatches_ = batches; }
+			else { CUMAT_ASSERT_ARGUMENT(batches == _Batches); }
 		}
+
 		DenseStorage(const DevicePointer<_Scalar>& data, Index rows, Index cols, Index batches)
 			: data_(data)
-			, rows_(rows)
-			, cols_(cols)
-			, batches_(batches)
 		{
-			CUMAT_ASSERT_ARGUMENT(rows >= 0);
-			CUMAT_ASSERT_ARGUMENT(cols >= 0);
-			CUMAT_ASSERT_ARGUMENT(batches >= 0);
+			if (IsRowsDynamic) { CUMAT_ASSERT_ARGUMENT(rows >= 0); dynRows_ = rows; }
+			else { CUMAT_ASSERT_ARGUMENT(rows == _Rows); }
+			if (IsColsDynamic) { CUMAT_ASSERT_ARGUMENT(cols >= 0); dynCols_ = cols; }
+			else { CUMAT_ASSERT_ARGUMENT(cols == _Columns); }
+			if (IsBatchesDynamic) { CUMAT_ASSERT_ARGUMENT(batches >= 0); dynBatches_ = batches; }
+			else { CUMAT_ASSERT_ARGUMENT(batches == _Batches); }
 		}
+
 		void swap(DenseStorage& other) noexcept
 		{
 			std::swap(data_, other.data_);
-			std::swap(rows_, other.rows_);
-			std::swap(cols_, other.cols_);
-			std::swap(batches_, other.batches_);
+			std::swap(dynRows_, other.dynRows_);
+			std::swap(dynCols_, other.dynCols_);
+			std::swap(dynBatches_, other.dynBatches_);
 		}
-		__host__ __device__ CUMAT_STRONG_INLINE Index rows() const { return rows_; }
-		__host__ __device__ CUMAT_STRONG_INLINE Index cols() const { return cols_; }
-		__host__ __device__ CUMAT_STRONG_INLINE Index batches() const { return batches_; }
+
+		__host__ __device__ CUMAT_STRONG_INLINE Index rows() const { return IsRowsDynamic ? dynRows_ : _Rows; }
+		__host__ __device__ CUMAT_STRONG_INLINE Index cols() const { return IsColsDynamic ? dynCols_ : _Columns; }
+		__host__ __device__ CUMAT_STRONG_INLINE Index batches() const { return IsBatchesDynamic ? dynBatches_ : _Batches; }
 		__host__ __device__ CUMAT_STRONG_INLINE const _Scalar *data() const { return data_.pointer(); }
 		__host__ __device__ CUMAT_STRONG_INLINE _Scalar *data() { return data_.pointer(); }
 		CUMAT_STRONG_INLINE const DevicePointer<_Scalar>& dataPointer() const { return data_; }
@@ -825,15 +499,21 @@ public:
 	 */
 	void copyFromHost(const _Scalar* data)
 	{
-		//slower, conservative: full synchronization
-		//CUMAT_SAFE_CALL(cudaMemcpy(data_.data(), data, sizeof(_Scalar)*size(), cudaMemcpyHostToDevice));
-		//CUMAT_SAFE_CALL(cudaDeviceSynchronize());
-
-		//faster: only synchronize this stream
 		CUMAT_SAFE_CALL(cudaMemcpyAsync(data_.data(), data, sizeof(_Scalar)*size(), cudaMemcpyHostToDevice, Context::current().stream()));
 		CUMAT_SAFE_CALL(cudaStreamSynchronize(Context::current().stream()));
-
         CUMAT_PROFILING_INC(MemcpyHostToDevice);
+	}
+
+	/**
+	* \brief Performs an asynchronous copy from the host memory into the device memory of this matrix.
+	* The caller is responsible for ensuring the data remains valid until the copy completes.
+	* Use cudaStreamSynchronize or cudaDeviceSynchronize to wait for completion.
+	* \param data the data to copy into this matrix
+	*/
+	void copyFromHostAsync(const _Scalar* data)
+	{
+		CUMAT_SAFE_CALL(cudaMemcpyAsync(data_.data(), data, sizeof(_Scalar)*size(), cudaMemcpyHostToDevice, Context::current().transferStream()));
+		CUMAT_PROFILING_INC(MemcpyHostToDevice);
 	}
 
 	/**
@@ -846,15 +526,21 @@ public:
 	*/
 	void copyToHost(_Scalar* data) const
 	{
-	    //slower, conservative: full synchronization
-		//CUMAT_SAFE_CALL(cudaStreamSynchronize(Context::current().stream()));
-		//CUMAT_SAFE_CALL(cudaMemcpy(data, data_.data(), sizeof(_Scalar)*size(), cudaMemcpyDeviceToHost));
-
-		//faster: only synchronize this stream
 		CUMAT_SAFE_CALL(cudaMemcpyAsync(data, data_.data(), sizeof(_Scalar)*size(), cudaMemcpyDeviceToHost, Context::current().stream()));
 		CUMAT_SAFE_CALL(cudaStreamSynchronize(Context::current().stream()));
-
         CUMAT_PROFILING_INC(MemcpyDeviceToHost);
+	}
+
+	/**
+	* \brief Performs an asynchronous copy from the device memory of this matrix into the specified host memory.
+	* The caller is responsible for ensuring the output buffer is valid and should call
+	* cudaStreamSynchronize or cudaDeviceSynchronize before accessing the data.
+	* \param data the data in which the matrix is stored
+	*/
+	void copyToHostAsync(_Scalar* data) const
+	{
+		CUMAT_SAFE_CALL(cudaMemcpyAsync(data, data_.data(), sizeof(_Scalar)*size(), cudaMemcpyDeviceToHost, Context::current().transferStream()));
+		CUMAT_PROFILING_INC(MemcpyDeviceToHost);
 	}
 
 	// EIGEN INTEROP

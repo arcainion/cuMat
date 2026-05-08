@@ -198,7 +198,7 @@
  */
 #define CUMAT_STATIC_ASSERT(exp, msg) static_assert(exp, msg)
 
-#define CUMAT_STRONG_INLINE __inline__
+#define CUMAT_STRONG_INLINE __forceinline__
 
 
 /**

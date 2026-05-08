@@ -63,24 +63,36 @@ namespace internal {
 
 	namespace kernels
 	{
-		template <typename T, typename M, AssignmentMode Mode>
-		__global__ void CwiseEvaluationKernel(dim3 virtual_size, const T expr, M matrix)
-		{
-			//By using a 1D-loop over the linear index,
-			//the target matrix can determine the order of rows, columns and batches.
-			//E.g. by storage order (row major / column major)
-			//Later, this may come in hand if sparse matrices or diagonal matrices are allowed
-			//that only evaluate certain elements.
-			CUMAT_KERNEL_1D_LOOP(index, virtual_size)
+		template <typename T, typename M, AssignmentMode Mode, bool DirectSrc>
+		struct CwiseEvalHelper;
 
+		template <typename T, typename M, AssignmentMode Mode>
+		struct CwiseEvalHelper<T, M, Mode, true>
+		{
+			static __device__ void eval(Index index, T& expr, M& matrix)
+			{
+				auto val = expr.rawCoeff(index);
+				internal::CwiseAssignmentHandler<M, decltype(val), Mode>::assign(matrix, val, index);
+			}
+		};
+
+		template <typename T, typename M, AssignmentMode Mode>
+		struct CwiseEvalHelper<T, M, Mode, false>
+		{
+			static __device__ void eval(Index index, const T& expr, M& matrix)
+			{
 				Index i, j, k;
 				matrix.index(index, i, j, k);
-
-				//there seems to be a bug in CUDA if the result of expr.coeff is directly passed to setRawCoeff.
-				//By saving it in a local variable, this is prevented
 				auto val = expr.coeff(i, j, k, index);
 				internal::CwiseAssignmentHandler<M, decltype(val), Mode>::assign(matrix, val, index);
+			}
+		};
 
+		template <typename T, typename M, AssignmentMode Mode>
+		__global__ void __launch_bounds__(256) CwiseEvaluationKernel(dim3 virtual_size, T expr, M matrix)
+		{
+			CUMAT_KERNEL_1D_LOOP(index, virtual_size)
+				CwiseEvalHelper<T, M, Mode, (internal::traits<T>::AccessFlags & ReadDirect) != 0>::eval(index, expr, matrix);
 			CUMAT_KERNEL_1D_LOOP_END
 		}
 	}

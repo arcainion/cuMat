@@ -259,13 +259,13 @@ namespace internal
 		{
 			const int start = sparsity.JA.getRawCoeff(row);
 			const int end = sparsity.JA.getRawCoeff(row + 1);
-			for (int i = start; i < end; ++i)
-			{
-				int c = sparsity.IA.getRawCoeff(i);
-				if (c == col) {
-					const int idx = i + sparsity.nnz * batch;
-					return idx;
-				}
+			int lo = start, hi = end - 1;
+			while (lo <= hi) {
+				int mid = (lo + hi) / 2;
+				int c = sparsity.IA.getRawCoeff(mid);
+				if (c == col) return mid + sparsity.nnz * batch;
+				if (c < col) lo = mid + 1;
+				else hi = mid - 1;
 			}
 			return -1;
 		}
@@ -305,10 +305,13 @@ namespace internal
 		{
 			const int start = sparsity.JA.getRawCoeff(col);
 			const int end = sparsity.JA.getRawCoeff(col + 1);
-			for (int i = start; i < end; ++i)
-			{
-				int r = sparsity.IA.getRawCoeff(i);
-				if (r == row) return i + sparsity.nnz * batch;
+			int lo = start, hi = end - 1;
+			while (lo <= hi) {
+				int mid = (lo + hi) / 2;
+				int r = sparsity.IA.getRawCoeff(mid);
+				if (r == row) return mid + sparsity.nnz * batch;
+				if (r < row) lo = mid + 1;
+				else hi = mid - 1;
 			}
 			return -1;
 		}

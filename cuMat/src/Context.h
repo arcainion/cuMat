@@ -136,6 +136,7 @@ class Context
 {
 private:
 	cudaStream_t stream_;
+	cudaStream_t transferStream_;
 	int device_ = 0;
 
 #if CUMAT_CONTEXT_DEBUG_MEMORY==1
@@ -146,40 +147,41 @@ private:
 	CUMAT_DISALLOW_COPY_AND_ASSIGN(Context);
 
 public:
-	Context(int device = 0)
+Context(int device = 0)
 		: device_(device)
 		, stream_(nullptr)
+		, transferStream_(nullptr)
 	{
-#if 0
-		//stream creation must be synchronized
-		//TODO: seems to work without
-		static std::mutex mutex;
-		std::lock_guard<std::mutex> lock(mutex);
-#endif
-
 #if CUMAT_SINGLE_THREAD_CONTEXT==0
 		//each context has its own stream
 		CUMAT_SAFE_CALL(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking));
+		//each context has its own transfer stream
+		CUMAT_SAFE_CALL(cudaStreamCreateWithFlags(&transferStream_, cudaStreamNonBlocking));
 #endif
 		//for a global context, use the global stream
 
 		//TODO: init BLAS context and so on
 
-		CUMAT_LOG_DEBUG("Context initialized for thread 0x" << std::hex << std::this_thread::get_id() << ", stream: 0x" << stream_);
+		CUMAT_LOG_DEBUG("Context initialized for thread 0x" << std::hex << std::this_thread::get_id() << ", stream: 0x" << stream_ << ", transferStream: 0x" << transferStream_);
 	}
 
-	~Context()
+~Context()
 	{
 		if (stream_ != nullptr)
 		{
 			cudaStreamDestroy(stream_);
 			stream_ = nullptr;
 		}
+		if (transferStream_ != nullptr)
+		{
+			cudaStreamDestroy(transferStream_);
+			transferStream_ = nullptr;
+		}
 		CUMAT_LOG_DEBUG("Context deleted for thread 0x" << std::hex << std::this_thread::get_id());
-#if CUMAT_CONTEXT_DEBUG_MEMORY==1
+	#if CUMAT_CONTEXT_DEBUG_MEMORY==1
 		CUMAT_ASSERT(allocationsHost_ == 0 && "some host memory was not released");
 		CUMAT_ASSERT(allocationsDevice_ == 0 && "some device memory was not released");
-#endif
+	#endif
 	}
 
 	/**
@@ -221,6 +223,12 @@ public:
 	 * \return the cuda stream
 	 */
 	cudaStream_t stream() const { return stream_; }
+
+	/**
+	 * \brief Returns the dedicated transfer stream associated with this context
+	 * \return the transfer stream for host-device data movement
+	 */
+	cudaStream_t transferStream() const { return transferStream_; }
 
 #if CUMAT_CONTEXT_USE_CUB_ALLOCATOR==1
     static cub::CachingDeviceAllocator& getCubAllocator()
@@ -384,12 +392,12 @@ public:
 		//Improved version using cudaOccupancyMaxPotentialBlockSize
 		int minGridSize = 0, bestBlockSize = 0;
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
-		minGridSize = std::min(int(CUMAT_DIV_UP(size_, bestBlockSize)), minGridSize);
-		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << minGridSize);
+		int numBlocks = std::max(int(CUMAT_DIV_UP(size_, bestBlockSize)), minGridSize);
+		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
 		KernelLaunchConfig cfg = {
 			dim3(size_, 1, 1),
 			dim3(bestBlockSize, 1, 1),
-			dim3(minGridSize, 1, 1)
+			dim3(numBlocks, 1, 1)
 		};
 		return cfg;
 #endif
@@ -411,11 +419,13 @@ public:
 		CUMAT_ASSERT_ARGUMENT(sizey > 0);
 		int minGridSize = 0, bestBlockSize = 0;
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
-		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << minGridSize);
+		unsigned int totalWork = sizex * sizey;
+		int numBlocks = std::max(int(CUMAT_DIV_UP(totalWork, bestBlockSize)), minGridSize);
+		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
 		KernelLaunchConfig cfg = {
 			dim3(sizex, sizey, 1),
 			dim3(bestBlockSize, 1, 1),
-			dim3(minGridSize, 1, 1)
+			dim3(numBlocks, 1, 1)
 		};
 		return cfg;
 	}
@@ -438,11 +448,13 @@ public:
 		CUMAT_ASSERT_ARGUMENT(sizez > 0);
 		int minGridSize = 0, bestBlockSize = 0;
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
-		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << minGridSize);
+		unsigned int totalWork = sizex * sizey * sizez;
+		int numBlocks = std::max(int(CUMAT_DIV_UP(totalWork, bestBlockSize)), minGridSize);
+		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
 		KernelLaunchConfig cfg = {
 			dim3(sizex, sizey, sizez),
 			dim3(bestBlockSize, 1, 1),
-			dim3(minGridSize, 1, 1)
+			dim3(numBlocks, 1, 1)
 		};
 		return cfg;
 	}

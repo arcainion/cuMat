@@ -314,15 +314,26 @@ namespace internal
 	namespace kernels
 	{
 		template<typename _Input, typename _Output, typename _Op, typename _Scalar>
-		__global__ void ReduceThreadKernel(dim3 virtual_size,
+		__global__ void __launch_bounds__(256) ReduceThreadKernel(dim3 virtual_size,
 			_Input input, _Output output, _Op op, _Scalar initial, int N)
 		{
-			CUMAT_KERNEL_1D_LOOP(i, virtual_size)
+			extern __shared__ _Scalar shared[];
+			for (Index i = blockIdx.x; i < virtual_size.x; i += gridDim.x) {
 				const Index O = i * N;
 				_Scalar v = initial;
-				for (int n = 0; n < N; ++n) v = op(v, input[O + n]);
-				output[i] = v;
-			CUMAT_KERNEL_1D_LOOP_END
+				for (int n = threadIdx.x; n < N; n += blockDim.x)
+					v = op(v, input[O + n]);
+				shared[threadIdx.x] = v;
+				__syncthreads();
+				for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+					if (threadIdx.x < s)
+						shared[threadIdx.x] = op(shared[threadIdx.x], shared[threadIdx.x + s]);
+					__syncthreads();
+				}
+				if (threadIdx.x == 0)
+					output[i] = shared[0];
+				__syncthreads();
+			}
 		}
 	}
 	template<typename _Input, typename _Output, int _Axis, typename _Op, typename _Scalar>
@@ -339,7 +350,7 @@ namespace internal
 			KernelLaunchConfig cfg = ctx.createLaunchConfig1D(numBatches, 
 				kernels::ReduceThreadKernel<decltype(iterIn), decltype(iterOut), _Op, _Scalar>);
 			kernels::ReduceThreadKernel<decltype(iterIn), decltype(iterOut), _Op, _Scalar>
-				<<< cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>> (
+				<<< cfg.block_count, cfg.thread_per_block, cfg.thread_per_block.x * sizeof(_Scalar), ctx.stream() >>> (
 					cfg.virtual_size, iterIn, iterOut, op, initial, int(numEntries));
 			CUMAT_CHECK_ERROR();
 
@@ -353,7 +364,7 @@ namespace internal
 	namespace kernels
 	{
 		template<typename _Input, typename _Output, typename _Op, typename _Scalar>
-		__global__ void ReduceWarpKernel(dim3 virtual_size,
+		__global__ void __launch_bounds__(256) ReduceWarpKernel(dim3 virtual_size,
 			_Input input, _Output output, _Op op, _Scalar initial, Index N)
 		{
 			CUMAT_KERNEL_1D_LOOP(i_, virtual_size)
@@ -401,7 +412,7 @@ namespace internal
 	namespace kernels
 	{
 		template<typename _Input, typename _Output, typename _Op, typename _Scalar, int BlockSize>
-		__global__ void ReduceBlockKernel(dim3 virtual_size,
+		__global__ void __launch_bounds__(BlockSize) ReduceBlockKernel(dim3 virtual_size,
 			_Input input, _Output output, _Op op, _Scalar initial, Index N)
 		{
 			const int part = threadIdx.x;

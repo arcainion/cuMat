@@ -109,7 +109,7 @@ namespace internal
 		};;
 
 		template<typename M, typename S>
-		__global__ void RandomEvaluationKernel(dim3 virtual_size, M matrix, S min, S max, state_t* seeds)
+		__global__ void __launch_bounds__(256) RandomEvaluationKernel(dim3 virtual_size, M matrix, S min, S max, state_t* __restrict__ seeds)
 		{
 			state_t seed = seeds[threadIdx.x];
 			CUMAT_KERNEL_1D_LOOP(index, virtual_size)
