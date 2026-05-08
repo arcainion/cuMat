@@ -285,3 +285,139 @@ TEST(UnaryOpTest, LogicalNot)
     auto resultInt = result.template cast<int>().eval();
     EXPECT_TRUE(MatrixNear(resultInt.template cast<float>(), expected.template cast<float>(), 1e-6));
 }
+
+TEST(UnaryOpTest, ArcSin)
+{
+    float data[1][1][3] = {{{0.0f, 0.5f, 1.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseAsin().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(std::asin(0.0f), host[0]);
+    EXPECT_FLOAT_EQ(std::asin(0.5f), host[1]);
+    EXPECT_FLOAT_EQ(std::asin(1.0f), host[2]);
+}
+
+TEST(UnaryOpTest, ArcCos)
+{
+    float data[1][1][3] = {{{1.0f, 0.5f, 0.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseAcos().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(std::acos(1.0f), host[0]);
+    EXPECT_FLOAT_EQ(std::acos(0.5f), host[1]);
+    EXPECT_FLOAT_EQ(std::acos(0.0f), host[2]);
+}
+
+TEST(UnaryOpTest, ArcTan)
+{
+    float data[1][1][3] = {{{0.0f, 1.0f, 2.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseAtan().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(std::atan(0.0f), host[0]);
+    EXPECT_FLOAT_EQ(std::atan(1.0f), host[1]);
+    EXPECT_FLOAT_EQ(std::atan(2.0f), host[2]);
+}
+
+TEST(UnaryOpTest, ArcSinh)
+{
+    float data[1][1][3] = {{{0.0f, 0.5f, 1.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseAsinh().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(std::asinh(0.0f), host[0]);
+    EXPECT_FLOAT_EQ(std::asinh(0.5f), host[1]);
+    EXPECT_FLOAT_EQ(std::asinh(1.0f), host[2]);
+}
+
+TEST(UnaryOpTest, ArcCosh)
+{
+    float data[1][1][3] = {{{1.0f, 2.0f, 3.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseAcosh().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(std::acosh(1.0f), host[0]);
+    EXPECT_FLOAT_EQ(std::acosh(2.0f), host[1]);
+    EXPECT_FLOAT_EQ(std::acosh(3.0f), host[2]);
+}
+
+TEST(UnaryOpTest, ArcTanh)
+{
+    float data[1][1][3] = {{{0.0f, 0.5f, -0.5f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseAtanh().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(std::atanh(0.0f), host[0]);
+    EXPECT_FLOAT_EQ(std::atanh(0.5f), host[1]);
+    EXPECT_FLOAT_EQ(std::atanh(-0.5f), host[2]);
+}
+
+TEST(UnaryOpTest, Rsqrt)
+{
+    float data[1][1][3] = {{{1.0f, 4.0f, 9.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseRsqrt().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(1.0f / std::sqrt(1.0f), host[0]);
+    EXPECT_FLOAT_EQ(1.0f / std::sqrt(4.0f), host[1]);
+    EXPECT_FLOAT_EQ(1.0f / std::sqrt(9.0f), host[2]);
+}
+
+TEST(UnaryOpTest, Cbrt)
+{
+    float data[1][1][3] = {{{1.0f, 8.0f, 27.0f}}};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto result = m.cwiseCbrt().eval();
+    std::vector<float> host(3);
+    result.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(1.0f, host[0]);
+    EXPECT_FLOAT_EQ(2.0f, host[1]);
+    EXPECT_FLOAT_EQ(3.0f, host[2]);
+}
+
+TEST(UnaryOpTest, BinaryNot)
+{
+    int data[1][2][2] = {{{0, 1}, {2, 3}}};
+    MatrixXiR m = MatrixXiR::fromArray(data);
+    auto result = (~m).eval();
+    int expected[1][2][2] = {{{-1, -2}, {-3, -4}}};
+    EXPECT_TRUE(MatrixNear(result.template cast<float>(), MatrixXiR::fromArray(expected).template cast<float>(), 1e-6));
+}
+
+TEST(UnaryOpTest, DiagonalView)
+{
+    float data[1][3][3] = {{
+        {1, 2, 3},
+        {4, 5, 6},
+        {7, 8, 9}
+    }};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    auto diag = m.diagonal().eval();
+    EXPECT_EQ(3, diag.size());
+    std::vector<float> host(3);
+    diag.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(1, host[0]);
+    EXPECT_FLOAT_EQ(5, host[1]);
+    EXPECT_FLOAT_EQ(9, host[2]);
+}
+
+TEST(UnaryOpTest, AsDiagonal)
+{
+    float data[1][3][1] = {{{1}, {2}, {3}}};
+    auto v = MatrixXfR::fromArray(data);
+    auto d = v.asDiagonal().eval();
+    EXPECT_EQ(3, d.rows());
+    EXPECT_EQ(3, d.cols());
+    std::vector<float> host(9);
+    d.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(1, host[0]);
+    EXPECT_FLOAT_EQ(2, host[4]);
+    EXPECT_FLOAT_EQ(3, host[8]);
+}

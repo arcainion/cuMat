@@ -473,12 +473,16 @@ __host__ std::ostream& operator<<(std::ostream& os, const SparseMatrix<_Scalar, 
 	os << ", cols=" << m.cols();
 	os << ", batches=" << m.batches() << " (" << (_Batches == Dynamic ? "dynamic" : "compile-time") << ")";
 	os << ", storage=CSC" << std::endl;
+#if CUMAT_EIGEN_SUPPORT == 1
 	os << " Outer Indices (column): " << m.getSparsityPattern().JA.toEigen().transpose() << std::endl;
 	os << " Inner Indices (row): " << m.getSparsityPattern().IA.toEigen().transpose() << std::endl;
 	for (int batch = 0; batch < m.batches(); ++batch)
 	{
 		os << " Data (Batch " << batch << "): " << m.getData().slice(batch).eval().toEigen().transpose() << std::endl;
 	}
+#else
+	os << " (Eigen support disabled, cannot print matrix data)";
+#endif
 	return os;
 }
 /**
@@ -500,11 +504,15 @@ __host__ std::ostream& operator<<(std::ostream& os, const SparseMatrix<_Scalar, 
 	os << ", cols=" << m.cols();
 	os << ", batches=" << m.batches() << " (" << (_Batches == Dynamic ? "dynamic" : "compile-time") << ")";
 	os << ", storage=ELLPACK" << std::endl;
+#if CUMAT_EIGEN_SUPPORT == 1
 	os << " Indices:\n" << m.getSparsityPattern().indices.toEigen() << std::endl;
 	for (int batch = 0; batch < m.batches(); ++batch)
 	{
 		os << " Data (Batch " << batch << "): " << m.getData().slice(batch).eval().toEigen() << std::endl;
 	}
+#else
+	os << " (Eigen support disabled, cannot print matrix data)";
+#endif
 	return os;
 }
 

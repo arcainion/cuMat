@@ -234,7 +234,7 @@ public:
 		typedef typename _Derived::Type ActualType;
         Context& ctx = Context::current();
         KernelLaunchConfig cfg = ctx.createLaunchConfig1D(m.size(), internal::kernels::RandomEvaluationKernel<ActualType, _Scalar>);
-		internal::kernels::RandomEvaluationKernel<ActualType, _Scalar> <<<1, cfg.thread_per_block.x, 0, ctx.stream() >>>(cfg.virtual_size, m.derived(), min, max, state_.pointer());
+		internal::kernels::RandomEvaluationKernel<ActualType, _Scalar> <<<cfg.block_count, cfg.thread_per_block.x, 0, ctx.stream() >>>(cfg.virtual_size, m.derived(), min, max, state_.pointer());
         CUMAT_CHECK_ERROR();
 #else
 		CUMAT_ERROR_IF_NO_NVCC(fillUniform);

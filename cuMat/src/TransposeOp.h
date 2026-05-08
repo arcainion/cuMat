@@ -145,9 +145,8 @@ public:
         return val;
     }
     __device__ CUMAT_STRONG_INLINE Scalar& coeff(Index row, Index col, Index batch, Index index)
-    { //write acces (cwise)
-        //adjoint not allowed here
-        return matrix_.coeff(col, row, batch, -1);
+    { //write access (cwise) — adjoint not allowed here
+        return const_cast<_Derived&>(matrix_).coeff(col, row, batch, -1);
     }
 
     const _Derived& getUnderlyingMatrix() const

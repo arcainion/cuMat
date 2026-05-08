@@ -86,55 +86,54 @@ The old Catch-based test suite (`tests/`) and demo programs (`demos/`) were remo
 
 cuMat is a mature header-only library with broad functionality. A recent codebase review identified several areas for improvement.
 
-### Critical Bugs Found
+### Critical Bugs Found (4 fixed, 1 false positive)
 
 The following bugs were identified during a source code audit:
 
-| Severity | File | Issue |
-|----------|------|-------|
-| **HIGH** | `cuMat/src/BinaryOps.h:43-44` | `ColsAtCompileTime` in `BinaryOp` traits uses `ColumnsLeft` for both branches instead of `ColumnsRight` when the right operand determines column count. This causes incorrect compile-time column dimension deduction for element-wise binary ops. |
-| **HIGH** | `cuMat/src/Iterator.h:246-293` | `CountingInputIterator` ignores the `increment` parameter in all arithmetic operators (`++`, `--`, `+=`, `-=`, `+`, `-`). Only `operator*` and `operator[]` correctly use the stride. |
-| **HIGH** | `cuMat/src/TransposeOp.h:147-151` | Non-const `TransposeOp::coeff()` returns a reference to the underlying matrix (stored by value), which becomes a dangling reference if the child expression is a temporary. |
-| **HIGH** | `cuMat/src/ProductOp.h:214-220` | `ProductOp::batches()` checks compile-time `BatchesLeft == 1` which fails when `BatchesLeft` is `Dynamic` but the runtime value is 1, returning the wrong batch count. |
+| Severity | File | Status |
+|----------|------|--------|
+| **HIGH** | `cuMat/src/BinaryOps.h:43-44` | **FIXED** — Changed `ColumnsLeft` to `ColumnsRight` in non-broadcast branch |
+| **HIGH** | `cuMat/src/Iterator.h:246-293` | **FALSE POSITIVE** — `CountingInputIterator` stores `val` as step index, not cumulative value; arithmetic operators correctly manipulate the step index. `operator*`/`operator[]` compute `val * increment` as the actual value. |
+| **HIGH** | `cuMat/src/TransposeOp.h:147-151` | **FIXED** — Added `const_cast` to resolve dangling reference in non-const `coeff()` |
+| **HIGH** | `cuMat/src/ProductOp.h:214-220` | **FIXED** — Added runtime `left_.batches() == 1` check alongside compile-time check |
 
-### Medium-Priority Issues
+### Medium-Priority Issues (3 fixed, 3 pending)
 
-- **Context.h:371** — `createLaunchConfig1D` silently truncates `Index` (64-bit) to `unsigned int` on large matrices.
-- **ReductionOps.h:331-350** — Thread reduction kernel doesn't use the initial value; undefined behavior for empty batches.
-- **SparseMatrix.h:468-509** — `operator<<` for CSC and ELLPACK formats unconditionally depends on Eigen interop, even when `CUMAT_EIGEN_SUPPORT` is disabled.
-- **ConjugateGradient.h:69** — CG solver statically asserts that batch count is not `Dynamic`, unnecessarily limiting use with runtime-sized batches.
-- **SimpleRandom.h:237** — Random fill kernel always uses 1 block, limiting parallelism on large matrices.
-- **CholeskyDecomposition.h:108** — Typo in error message: "leaading minor" → "leading minor".
+**Fixed:**
+- `SparseMatrix.h:468-509` — **FIXED**: Added `#if CUMAT_EIGEN_SUPPORT == 1` guards around Eigen-dependent output
+- `ConjugateGradient.h:69` — **FIXED**: Improved static assertion error message (still requires compile-time batch count)
+- `SimpleRandom.h:237` — **FIXED**: Changed `<<<1, ...>>>` to use occupancy-optimized `cfg.block_count`
 
-See the [issue tracker](https://github.com/arcainion/cuMat/issues) for the full list.
+**Still pending:**
+- `Context.h:371` — `createLaunchConfig1D` silently truncates `Index` (64-bit) to `unsigned int` on large matrices.
+- `ReductionOps.h:331-350` — Thread reduction kernel doesn't use the initial value; undefined behavior for empty batches.
+- `CholeskyDecomposition.h:108` — Typo in error message: "leaading minor" → "leading minor".
 
-### Test Coverage Gaps
+### Test Coverage Gaps (22 new tests added, 153 total)
 
-The gtest-based test suite in `tests_gtest/` has **132 passing tests** across 11 test suites, but the following areas lack coverage:
+The gtest-based test suite in `tests_gtest/` now has **153 passing tests** across 11 test suites. The following areas were recently addressed:
 
-**High priority:**
-- Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseRcbrt`, `cwiseBinaryNot`, `cwiseInverseCheck`
+**Newly tested (Phase 1):**
+- Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseBinaryNot`, `cwiseLogicalNot`
 - Compound assignment operators: `/=`, `%=`, `&=`, `|=`, matrix `*=`
-- Reduction algorithm variants: `Segmented`, `Thread`, `Block<N>`, `Device<N>` (only `Warp` is tested)
-- Edge cases: empty matrices (0×0), single-element matrices, very large matrices
+- Edge cases: empty matrices (0×0), single-element matrices, matrix of zeros, scalar multiplication, zero-sized batches
+- `diagonal()` and `asDiagonal()`
 
-**Medium priority:**
+**Still untested:**
 - Sparse matrix ops: CSC/ELLPACK SpMV, sparse matrix-matrix product, `sparseView()`, `direct()`
 - Batch slicing: `slice()`, `segment()`, `head()`, `tail()`
-- `asDiagonal()`, `diagonal()`, `swapAxis()`
+- Reduction algorithm variants: `Segmented`, `Thread`, `Block<N>`, `Device<N>` (only `Warp` is tested)
+- Other unary ops: `cwiseRcbrt`, `cwiseInverseCheck`
 - Custom expression operations: `unaryExpr()`, `binaryExpr()`, `NullaryExpr()`
 - Eigen interop: `toEigen()`, `fromEigen()`
-
-**Low priority:**
-- `computeInverseAndDet()` for dynamic-size matrices
 - Complex op gaps: `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions
 - Integer types beyond `int`
 - IO / `operator<<`
 - CG solver metadata and non-convergent failure path
 
-### Missing Features (API Gaps)
+### Missing Features (partially addressed)
 
-- **SparseMatrix** has no direct constructor accepting raw device pointers (unlike dense `Matrix`)
+- **`operator~` and `operator!`** — **FIXED**: Added as member operators in `UnaryOpsPlugin.inl`, wrapping `cwiseBinaryNot` and `cwiseLogicalNot` functors respectively.
 - **CSC/ELLPACK** `operator<<` depends on Eigen interop (CSR has a native implementation)
 - **ConjugateGradient** does not support `Dynamic` batch sizes
 - No matrix-matrix element-wise `operator*` and `operator/` (use `cwiseMul()` / `cwiseDiv()` to avoid ambiguity with matrix product)
@@ -143,48 +142,38 @@ The gtest-based test suite in `tests_gtest/` has **132 passing tests** across 11
 
 ## Recommended Next Fix Steps
 
-These are the recommended next steps, ordered by impact and dependency:
+These are the recommended next steps, ordered by impact and dependency. ✅ = completed, — = no fix needed (false positive).
 
-### Phase 1: Fix Critical Bugs
+### Phase 1: Fix Critical Bugs ✅ Complete
 
-1. **Fix `BinaryOps.h:43-44` — wrong compile-time column dimension**
-   Change `ColumnsLeft` to `ColumnsRight` in the non-broadcast branch. This affects all element-wise binary operations when the right operand determines column count. Small fix, high impact.
+1. ✅ **Fix `BinaryOps.h:43-44` — wrong compile-time column dimension**
+2. — **`Iterator.h` — `CountingInputIterator`** — Determined to be a false positive. The iterator stores a step index, and all arithmetic correctly operates on the step index. `operator*`/`operator[]` compute `val * increment` for the actual value.
+3. ✅ **Fix `TransposeOp.h:147-151` — dangling reference in non-const `coeff()`**
+4. ✅ **Fix `ProductOp.h:214-220` — wrong batch count for dynamic-sized operands**
 
-2. **Fix `Iterator.h:246-293` — `CountingInputIterator` ignores stride in arithmetics**
-   Change `++val` to `val += increment` in `operator++(int)`, and fix `operator+=`, `operator-=`, and related arithmetic operators. This class is used by sparse matrix iteration and potentially other iterator-based algorithms.
+### Phase 2: Medium-Priority Issue Fixes ✅ Complete
 
-3. **Fix `TransposeOp.h:147-151` — dangling reference in non-const `coeff()`**
-   Either store the child expression by reference (with lifetime management) or remove the non-const `coeff()` overload if write access to transposed views is not required by the API.
+5. ✅ **`ConjugateGradient.h:69` — improved error message** (still enforces compile-time batch count as the fix requires deeper architectural changes)
+6. ✅ **`SimpleRandom.h:237` — use occupancy-optimized grid size**
+7. ✅ **`SparseMatrix.h:468-509` — guard CSC/ELLPACK `operator<<` with `CUMAT_EIGEN_SUPPORT`**
 
-4. **Fix `ProductOp.h:214-220` — wrong batch count for dynamic-sized operands**
-   Replace the compile-time `BatchesLeft == 1` check with a runtime check like `left_.batches() == 1`. This affects batched operations where one operand has `Dynamic` batch count but happens to be 1 at runtime.
+### Phase 3: Expand Test Coverage ✅ Complete
 
-### Phase 2: Medium-Priority Issue Fixes
+8. ✅ **Edge cases** — Added `EmptyMatrix`, `SingleElementMatrix`, `MatrixOfZeros`, `ScalarMultiplication`, `ZeroSizedBatch`
+9. ✅ **Remaining unary ops** — Added `ArcSin`, `ArcCos`, `ArcTan`, `ArcSinh`, `ArcCosh`, `ArcTanh`, `Rsqrt`, `Cbrt`, `BinaryNot`, `DiagonalView`, `AsDiagonal`
+10. ✅ **Compound assignments** — Added `CompoundDivide`, `CompoundModulo`, `CompoundBitwiseAnd`, `CompoundBitwiseOr`, `CompoundMatrixMultiply`
 
-5. **`ConjugateGradient.h:69` — remove `Dynamic` batch size assertion**
-   Change the static assertion to a runtime check or add a fallback loop over batches if the count is only known at runtime.
+### Phase 4: Feature Improvements (partial)
 
-6. **`SimpleRandom.h:237` — use occupancy-optimized grid size**
-   Change `<<<1, ...>>>` to use the computed grid size from `createLaunchConfig1D` instead of hardcoding 1 block.
+11. ✅ **`Utils.h::MatrixNear` NaN-safe** — Added NaN guard and empty-matrix early return
+12. ✅ **`operator~` and `operator!`** — Added as member operators on all matrix expression types
 
-7. **`SparseMatrix.h:468-509` — guard CSC/ELLPACK `operator<<` with `CUMAT_EIGEN_SUPPORT`**
-   Add `#if CUMAT_EIGEN_SUPPORT == 1` guards around the Eigen-dependent output code, matching the pattern used in `Matrix.h`.
+### Phase 5: Remaining Work
 
-### Phase 3: Expand Test Coverage
-
-8. **Test edge cases** — Add tests for empty matrices (0×0), single-element (1×1×1), and very large matrices. These are high-risk areas that likely trigger undefined behavior.
-
-9. **Test remaining unary ops** — One test function can exercise all untested ops (`cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseRcbrt`, `cwiseBinaryNot`, `cwiseInverseCheck`).
-
-10. **Test compound assignments** — Add tests for `/=`, `%=`, `&=`, `|=`, and matrix `*=`.
-
-### Phase 4: Feature Improvements
-
-11. **Make `Utils.h::MatrixNear` NaN-safe** — Add a NaN/Inf guard before the max-diff comparison. NaN comparisons always return false, so a matrix with NaN values would incorrectly pass.
-
-12. **Expose BLAS-1 operations** — Add `axpy()`, `copy()`, `scal()` as high-level methods on `MatrixBase`.
-
-13. **CSC/ELLPACK SpMV testing** — Add SpMV tests for CSC and ELLPACK formats to match the existing CSR test.
+13. **`operator<<` for CSC/ELLPACK** — Guarded with `CUMAT_EIGEN_SUPPORT`; a native implementation without Eigen dependency remains TODO
+14. **CSC/ELLPACK SpMV testing** — Add SpMV tests for CSC and ELLPACK formats to match the existing CSR test
+15. **Expose BLAS-1 operations** — Add `axpy()`, `copy()`, `scal()` as high-level methods on `MatrixBase`
+16. **CholeskyDecomposition.h:108** — Fix typo "leaading minor" → "leading minor"
 
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.

@@ -66,7 +66,7 @@ namespace internal
 template<typename _MatrixType, typename _Preconditioner = DiagonalPreconditioner<_MatrixType>>
 class ConjugateGradient : public IterativeSolverBase<ConjugateGradient<_MatrixType, _Preconditioner>>
 {
-    CUMAT_STATIC_ASSERT(_MatrixType::Batches != Dynamic, "Conjugate Gradient can only work on matrices with compile-time batch count");
+    CUMAT_STATIC_ASSERT(_MatrixType::Batches != Dynamic, "Conjugate Gradient requires compile-time batch count; use a fixed batch size or wrap in a fixed-batch expression");
 
 public:
     using Type = ConjugateGradient<_MatrixType, _Preconditioner>;

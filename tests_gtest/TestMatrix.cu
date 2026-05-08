@@ -195,3 +195,56 @@ TEST(MatrixTest, RandomFill)
         EXPECT_LT(v, 1.0f);
     }
 }
+
+TEST(MatrixTest, EmptyMatrix)
+{
+    MatrixXf m;
+    EXPECT_EQ(0, m.rows());
+    EXPECT_EQ(0, m.cols());
+    EXPECT_EQ(1, m.batches());
+    EXPECT_EQ(0, m.size());
+    MatrixXf zero = MatrixXf::Zero(0, 0, 1);
+    EXPECT_EQ(0, zero.size());
+    auto sum = zero.sum();
+    EXPECT_FLOAT_EQ(0.0f, static_cast<float>(sum));
+}
+
+TEST(MatrixTest, SingleElementMatrix)
+{
+    MatrixXf m = MatrixXf::Constant(1, 1, 1, 42.0f);
+    EXPECT_EQ(1, m.rows());
+    EXPECT_EQ(1, m.cols());
+    std::vector<float> host(1);
+    m.copyToHost(host.data());
+    EXPECT_FLOAT_EQ(42.0f, host[0]);
+    auto sum = m.sum();
+    EXPECT_FLOAT_EQ(42.0f, static_cast<float>(sum));
+    auto prod = m.prod();
+    EXPECT_FLOAT_EQ(42.0f, static_cast<float>(prod));
+}
+
+TEST(MatrixTest, MatrixOfZeros)
+{
+    MatrixXf m = MatrixXf::Zero(4, 5, 1);
+    std::vector<float> host(20);
+    m.copyToHost(host.data());
+    for (float v : host)
+        EXPECT_FLOAT_EQ(0.0f, v);
+}
+
+TEST(MatrixTest, ScalarMultiplication)
+{
+    MatrixXf a = MatrixXf::Constant(2, 2, 1, 2.0f);
+    MatrixXf result = (a * 3.0f).eval();
+    std::vector<float> host(4);
+    result.copyToHost(host.data());
+    for (float v : host)
+        EXPECT_FLOAT_EQ(6.0f, v);
+}
+
+TEST(MatrixTest, ZeroSizedBatch)
+{
+    BMatrixXf m(2, 3, 0);
+    EXPECT_EQ(0, m.batches());
+    EXPECT_EQ(0, m.size());
+}

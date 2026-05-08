@@ -166,6 +166,22 @@ UnaryOp<_Derived, functor::UnaryMathFunctor_cwiseNegate<Scalar> > operator-() co
 }
 
 /**
+ * \brief Component-wise logical not (!).
+ */
+UnaryOp<_Derived, functor::UnaryMathFunctor_cwiseLogicalNot<Scalar> > operator!() const {
+	CUMAT_ERROR_IF_NO_NVCC(logicalNot)
+	return UnaryOp<_Derived, functor::UnaryMathFunctor_cwiseLogicalNot <Scalar> >(derived());
+}
+
+/**
+ * \brief Component-wise bitwise not (~). Only available for integer matrices.
+ */
+UnaryOp<_Derived, functor::UnaryMathFunctor_cwiseBinaryNot<Scalar> > operator~() const {
+	CUMAT_ERROR_IF_NO_NVCC(binaryNot)
+	return UnaryOp<_Derived, functor::UnaryMathFunctor_cwiseBinaryNot <Scalar> >(derived());
+}
+
+/**
  * \brief Custom unary expression.
  * The unary functor must look as follow:
  * \code

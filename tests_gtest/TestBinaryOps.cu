@@ -241,3 +241,56 @@ TEST(BinaryOpTest, DoublePrecisionAdd)
     double expected[1][2][2] = {{{2.0, 4.0}, {6.0, 8.0}}};
     EXPECT_TRUE(MatrixNear(result, MatrixXdR::fromArray(expected), 1e-12));
 }
+
+TEST(BinaryOpTest, CompoundDivide)
+{
+    MatrixXf a = MatrixXf::Constant(2, 2, 1, 10.0f);
+    MatrixXf b = MatrixXf::Constant(2, 2, 1, 2.0f);
+    a /= b.eval();
+    MatrixXf expected = MatrixXf::Constant(2, 2, 1, 5.0f);
+    EXPECT_TRUE(MatrixNear(a, expected, 1e-6));
+}
+
+TEST(BinaryOpTest, CompoundModulo)
+{
+    int aData[1][2][2] = {{{5, 7}, {9, 11}}};
+    int bData[1][2][2] = {{{2, 3}, {4, 5}}};
+    MatrixXiR a = MatrixXiR::fromArray(aData);
+    MatrixXiR b = MatrixXiR::fromArray(bData);
+    a %= b.eval();
+    int expected[1][2][2] = {{{1, 1}, {1, 1}}};
+    EXPECT_TRUE(MatrixNear(a.template cast<float>(), MatrixXiR::fromArray(expected).template cast<float>(), 1e-6));
+}
+
+TEST(BinaryOpTest, CompoundBitwiseAnd)
+{
+    int aData[1][2][2] = {{{5, 6}, {7, 8}}};
+    int bData[1][2][2] = {{{3, 3}, {3, 3}}};
+    MatrixXiR a = MatrixXiR::fromArray(aData);
+    MatrixXiR b = MatrixXiR::fromArray(bData);
+    a &= b.eval();
+    int expected[1][2][2] = {{{1, 2}, {3, 0}}};
+    EXPECT_TRUE(MatrixNear(a.template cast<float>(), MatrixXiR::fromArray(expected).template cast<float>(), 1e-6));
+}
+
+TEST(BinaryOpTest, CompoundBitwiseOr)
+{
+    int aData[1][2][2] = {{{1, 2}, {4, 8}}};
+    int bData[1][2][2] = {{{2, 4}, {8, 16}}};
+    MatrixXiR a = MatrixXiR::fromArray(aData);
+    MatrixXiR b = MatrixXiR::fromArray(bData);
+    a |= b.eval();
+    int expected[1][2][2] = {{{3, 6}, {12, 24}}};
+    EXPECT_TRUE(MatrixNear(a.template cast<float>(), MatrixXiR::fromArray(expected).template cast<float>(), 1e-6));
+}
+
+TEST(BinaryOpTest, CompoundMatrixMultiply)
+{
+    float aData[1][2][2] = {{{1, 2}, {3, 4}}};
+    float bData[1][2][2] = {{{2, 0}, {0, 2}}};
+    MatrixXfR a = MatrixXfR::fromArray(aData);
+    MatrixXfR b = MatrixXfR::fromArray(bData);
+    a *= b.eval();
+    float expected[1][2][2] = {{{2, 4}, {6, 8}}};
+    EXPECT_TRUE(MatrixNear(a, MatrixXfR::fromArray(expected), 1e-6));
+}

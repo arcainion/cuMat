@@ -5,6 +5,7 @@
 #include <cuMat/Dense>
 #include <cuMat/Sparse>
 #include <cuMat/IterativeLinearSolvers>
+#include <cuMat/src/SimpleRandom.h>
 #include <gtest/gtest.h>
 
 template<typename T1, typename T2>
@@ -15,9 +16,14 @@ template<typename T1, typename T2>
     auto e = expected.eval();
     if (a.rows() != e.rows() || a.cols() != e.cols() || a.batches() != e.batches())
         return ::testing::AssertionFailure() << "Dimension mismatch";
+    auto sz = a.size();
+    if (sz == 0)
+        return ::testing::AssertionSuccess();
     auto diff = (a - e).cwiseAbs().eval();
     auto maxReduction = diff.maxCoeff();
     typename decltype(maxReduction)::Scalar maxDiff(maxReduction);
+    if (maxDiff != maxDiff)
+        return ::testing::AssertionFailure() << "NaN detected in diff matrix (maxDiff is NaN)";
     if (maxDiff > tolerance)
         return ::testing::AssertionFailure() << "Max diff: " << maxDiff;
     return ::testing::AssertionSuccess();

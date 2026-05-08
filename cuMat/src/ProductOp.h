@@ -213,7 +213,7 @@ public:
     }
     __host__ __device__ CUMAT_STRONG_INLINE Index batches() const
     {
-        if (BatchesLeft == 1) //broadcast left
+        if (BatchesLeft == 1 || left_.batches() == 1) //broadcast left
             return right_.batches();
         else //maybe broadcast right
             return left_.batches();

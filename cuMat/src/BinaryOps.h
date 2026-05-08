@@ -42,7 +42,7 @@ namespace internal {
                 (BroadcastRowsRight ? RowsLeft : RowsRight),
             ColsAtCompileTime = (ColumnsLeft == Dynamic || ColumnsRight == Dynamic) ?
                 Dynamic :
-                (BroadcastColsRight ? ColumnsLeft : ColumnsLeft),
+                (BroadcastColsRight ? ColumnsLeft : ColumnsRight),
             BatchesAtCompileTime = (BatchesLeft == Dynamic || BatchesRight == Dynamic) ?
                 Dynamic :
                 (BroadcastBatchesRight ? BatchesLeft : BatchesRight),
