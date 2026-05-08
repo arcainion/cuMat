@@ -54,9 +54,9 @@ public:
         Index l = 0;
         //for (int i = 0; i < 3; ++i) l += coords[i] * stride[i];
         //manual loop unrolling
-        l += coords.get<0>() * stride.get<0>();
-        l += coords.get<1>() * stride.get<1>();
-        l += coords.get<2>() * stride.get<2>();
+        l += thrust::get<0>(coords) * thrust::get<0>(stride);
+        l += thrust::get<1>(coords) * thrust::get<1>(stride);
+        l += thrust::get<2>(coords) * thrust::get<2>(stride);
         return l;
     }
 
@@ -66,9 +66,9 @@ public:
         //for (int i = 0; i < 3; ++i) outCoords[i] = (linear / stride[i]) % dims[i];
         //manual loop unrolling
         Index3 coords = {
-            (linear / stride.get<0>()) % dims.get<0>(),
-            (linear / stride.get<1>()) % dims.get<1>(),
-            (linear / stride.get<2>()) % dims.get<2>()
+            (linear / thrust::get<0>(stride)) % thrust::get<0>(dims),
+            (linear / thrust::get<1>(stride)) % thrust::get<1>(dims),
+            (linear / thrust::get<2>(stride)) % thrust::get<2>(dims)
         };
         //printf("index: %d; stride: %d,%d,%d  -> coords: %d,%d,%d\n",
         //    (int)linear,
@@ -96,13 +96,13 @@ public:
     __device__ CUMAT_STRONG_INLINE value_type operator*() const
     {
         Index3 coords = fromLinear(index_, dims_, stride_);
-        return mat_.coeff(coords.get<0>(), coords.get<1>(), coords.get<2>(), -1);
+        return mat_.coeff(thrust::get<0>(coords), thrust::get<1>(coords), thrust::get<2>(coords), -1);
     }
 
     __device__ CUMAT_STRONG_INLINE reference operator*()
     {
         Index3 coords = fromLinear(index_, dims_, stride_);
-        return mat_.coeff(coords.get<0>(), coords.get<1>(), coords.get<2>(), -1);
+        return mat_.coeff(thrust::get<0>(coords), thrust::get<1>(coords), thrust::get<2>(coords), -1);
     }
 
     /// Addition
@@ -150,7 +150,7 @@ public:
     __device__ __forceinline__ value_type operator[](Distance n) const
     {
         Index3 coords = fromLinear(index_+n, dims_, stride_);
-        return mat_.coeff(coords.get<0>(), coords.get<1>(), coords.get<2>(), -1);
+        return mat_.coeff(thrust::get<0>(coords), thrust::get<1>(coords), thrust::get<2>(coords), -1);
     }
 
     /// Equal to
@@ -203,7 +203,7 @@ public:
     __device__ __forceinline__ reference operator[](Distance n)
     {
         Index3 coords = fromLinear(Base::index_ + n, Base::dims_, Base::stride_);
-        return Base::mat_.coeff(coords.get<0>(), coords.get<1>(), coords.get<2>(), -1);
+        return Base::mat_.coeff(thrust::get<0>(coords), thrust::get<1>(coords), thrust::get<2>(coords), -1);
     }
 };
 

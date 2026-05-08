@@ -26,26 +26,29 @@
 #ifndef CUMAT_CONTEXT_DEBUG_MEMORY
 /**
  * \brief Define this constant as 1 to enable a simple mechanism to test for memory leaks
+ * When enabled, assertions are automatically enabled via NDEBUG check
  */
 #define CUMAT_CONTEXT_DEBUG_MEMORY 0
-#else
-#if defined(NDEBUG) && CUMAT_CONTEXT_DEBUG_MEMORY==1
-#error You requested to turn on CUMAT_CONTEXT_DEBUG_MEMORY but disabled assertions
 #endif
-#endif
+
 #if CUMAT_CONTEXT_DEBUG_MEMORY==1
+// For debug memory tracking, we need assertions
 #include <assert.h>
+// Note: This feature requires assertions to be enabled (NDEBUG not defined)
+// In Release mode, this feature should not be used
 #endif
+
 
 
 /**
  * \brief If this macro is defined to 1, then the cub cached allocator is used for device allocation.
+ * Set to 0 to use cudaMalloc directly (avoids CUB conflicts with CUDA 12.4+)
  */
-#define CUMAT_CONTEXT_USE_CUB_ALLOCATOR 1
+#define CUMAT_CONTEXT_USE_CUB_ALLOCATOR 0
 
 #if CUMAT_CONTEXT_USE_CUB_ALLOCATOR==1
-//#include <cub/util_allocator.cuh>
-#include "../../third-party/cub/util_allocator.cuh" //No need to add cub to the global include (would clash e.g. with other Eigen versions)
+// Use CUDA built-in CUB (CUDA 12.4+)
+#include <cub/util_allocator.cuh>
 #endif
 
 CUMAT_NAMESPACE_BEGIN

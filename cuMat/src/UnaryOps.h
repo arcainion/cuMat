@@ -7,7 +7,7 @@
 #include "NumTraits.h"
 
 #include <cmath>
-#include "../../third-party/cub/util_type.cuh"
+#include <cub/util_type.cuh>
 
 CUMAT_NAMESPACE_BEGIN
 
@@ -222,7 +222,7 @@ namespace functor
     DEFINE_FUNCTOR(conjugate, cdouble, conj(x));
 
 	DEFINE_FUNCTOR_INT(cwiseBinaryNot, ~x);
-	DEFINE_FUNCTOR_SINGLE(cwiseLogicalNot, bool, !x);
+	DEFINE_GENERAL_FUNCTOR(cwiseLogicalNot, !x);
 
 #undef DECLARE_FUNCTOR
 #undef DEFINE_GENERAL_FUNCTOR
