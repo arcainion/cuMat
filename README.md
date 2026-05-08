@@ -82,6 +82,65 @@ The test suite covers: context management, matrix construction/operations, unary
 
 The old Catch-based test suite (`tests/`) and demo programs (`demos/`) were removed due to CUB compatibility issues with newer CUDA versions.
 
+## Project Status
+
+cuMat is a mature header-only library with broad functionality. A recent codebase review identified several areas for improvement.
+
+### Critical Bugs Found
+
+The following bugs were identified during a source code audit:
+
+| Severity | File | Issue |
+|----------|------|-------|
+| **HIGH** | `cuMat/src/BinaryOps.h:43-44` | `ColsAtCompileTime` in `BinaryOp` traits uses `ColumnsLeft` for both branches instead of `ColumnsRight` when the right operand determines column count. This causes incorrect compile-time column dimension deduction for element-wise binary ops. |
+| **HIGH** | `cuMat/src/Iterator.h:246-293` | `CountingInputIterator` ignores the `increment` parameter in all arithmetic operators (`++`, `--`, `+=`, `-=`, `+`, `-`). Only `operator*` and `operator[]` correctly use the stride. |
+| **HIGH** | `cuMat/src/TransposeOp.h:147-151` | Non-const `TransposeOp::coeff()` returns a reference to the underlying matrix (stored by value), which becomes a dangling reference if the child expression is a temporary. |
+| **HIGH** | `cuMat/src/ProductOp.h:214-220` | `ProductOp::batches()` checks compile-time `BatchesLeft == 1` which fails when `BatchesLeft` is `Dynamic` but the runtime value is 1, returning the wrong batch count. |
+
+### Medium-Priority Issues
+
+- **Context.h:371** — `createLaunchConfig1D` silently truncates `Index` (64-bit) to `unsigned int` on large matrices.
+- **ReductionOps.h:331-350** — Thread reduction kernel doesn't use the initial value; undefined behavior for empty batches.
+- **SparseMatrix.h:468-509** — `operator<<` for CSC and ELLPACK formats unconditionally depends on Eigen interop, even when `CUMAT_EIGEN_SUPPORT` is disabled.
+- **ConjugateGradient.h:69** — CG solver statically asserts that batch count is not `Dynamic`, unnecessarily limiting use with runtime-sized batches.
+- **SimpleRandom.h:237** — Random fill kernel always uses 1 block, limiting parallelism on large matrices.
+- **CholeskyDecomposition.h:108** — Typo in error message: "leaading minor" → "leading minor".
+
+See the [issue tracker](https://github.com/arcainion/cuMat/issues) for the full list.
+
+### Test Coverage Gaps
+
+The gtest-based test suite in `tests_gtest/` has **132 passing tests** across 11 test suites, but the following areas lack coverage:
+
+**High priority:**
+- Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseRcbrt`, `cwiseBinaryNot`, `cwiseInverseCheck`
+- Compound assignment operators: `/=`, `%=`, `&=`, `|=`, matrix `*=`
+- Reduction algorithm variants: `Segmented`, `Thread`, `Block<N>`, `Device<N>` (only `Warp` is tested)
+- Edge cases: empty matrices (0×0), single-element matrices, very large matrices
+
+**Medium priority:**
+- Sparse matrix ops: CSC/ELLPACK SpMV, sparse matrix-matrix product, `sparseView()`, `direct()`
+- Batch slicing: `slice()`, `segment()`, `head()`, `tail()`
+- `asDiagonal()`, `diagonal()`, `swapAxis()`
+- Custom expression operations: `unaryExpr()`, `binaryExpr()`, `NullaryExpr()`
+- Eigen interop: `toEigen()`, `fromEigen()`
+
+**Low priority:**
+- `computeInverseAndDet()` for dynamic-size matrices
+- Complex op gaps: `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions
+- Integer types beyond `int`
+- IO / `operator<<`
+- CG solver metadata and non-convergent failure path
+
+### Missing Features (API Gaps)
+
+- **SparseMatrix** has no direct constructor accepting raw device pointers (unlike dense `Matrix`)
+- **CSC/ELLPACK** `operator<<` depends on Eigen interop (CSR has a native implementation)
+- **ConjugateGradient** does not support `Dynamic` batch sizes
+- No matrix-matrix element-wise `operator*` and `operator/` (use `cwiseMul()` / `cwiseDiv()` to avoid ambiguity with matrix product)
+- Null-matrix specializations flagged as TODO in `Matrix.h:67`
+- BLAS Level 1 operations (`axpy`, `copy`, `scal`) are available via cuBLAS but not exposed as standalone high-level ops
+
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.
 
