@@ -212,3 +212,55 @@ TEST(ReductionTest, IntegerReduction)
     int prod = static_cast<int>(m.prod());
     EXPECT_EQ(720, prod);
 }
+
+TEST(ReductionTest, ReductionAlgorithmSegmented)
+{
+    float data[1][2][2] = {{
+        {1, 2},
+        {3, 4}
+    }};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    float sum = static_cast<float>(m.sum<Axis::Row | Axis::Column | Axis::Batch, ReductionAlg::Segmented>());
+    EXPECT_FLOAT_EQ(10.0f, sum);
+    float maxc = static_cast<float>(m.maxCoeff<Axis::Row | Axis::Column | Axis::Batch, ReductionAlg::Segmented>());
+    EXPECT_FLOAT_EQ(4.0f, maxc);
+}
+
+TEST(ReductionTest, ReductionAlgorithmThread)
+{
+    float data[1][2][2] = {{
+        {1, 2},
+        {3, 4}
+    }};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    float sum = static_cast<float>(m.sum<Axis::Row | Axis::Column | Axis::Batch, ReductionAlg::Thread>());
+    EXPECT_FLOAT_EQ(10.0f, sum);
+    float maxc = static_cast<float>(m.maxCoeff<Axis::Row | Axis::Column | Axis::Batch, ReductionAlg::Thread>());
+    EXPECT_FLOAT_EQ(4.0f, maxc);
+}
+
+TEST(ReductionTest, ReductionAlgorithmBlock)
+{
+    float data[1][2][2] = {{
+        {1, 2},
+        {3, 4}
+    }};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    float sum = static_cast<float>(m.sum<Axis::Row | Axis::Column | Axis::Batch, ReductionAlg::Block<256>>());
+    EXPECT_FLOAT_EQ(10.0f, sum);
+    float maxc = static_cast<float>(m.maxCoeff<Axis::Row | Axis::Column | Axis::Batch, ReductionAlg::Block<256>>());
+    EXPECT_FLOAT_EQ(4.0f, maxc);
+}
+
+TEST(ReductionTest, ReductionAlgorithmDevice)
+{
+    float data[1][2][2] = {{
+        {1, 2},
+        {3, 4}
+    }};
+    MatrixXfR m = MatrixXfR::fromArray(data);
+    float sum = static_cast<float>(m.sum<Axis::Row | Axis::Column | Axis::Batch, ReductionAlg::Device<1>>());
+    EXPECT_FLOAT_EQ(10.0f, sum);
+    float maxc = static_cast<float>(m.maxCoeff<Axis::Row | Axis::Column | Axis::Batch, ReductionAlg::Device<1>>());
+    EXPECT_FLOAT_EQ(4.0f, maxc);
+}

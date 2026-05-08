@@ -114,8 +114,7 @@ namespace eigen
 	struct MatrixCuMatToEigen
 	{
 		using type = ::Eigen::Matrix<
-			//typename TypeCuMatToEigen<typename _CuMatMatrixType::Scalar>::type,
-			typename _CuMatMatrixType::Scalar,
+			typename TypeCuMatToEigen<typename _CuMatMatrixType::Scalar>::type,
 			SizeCuMatToEigen<_CuMatMatrixType::Rows>::size,
 			SizeCuMatToEigen<_CuMatMatrixType::Columns>::size,
             //Eigen requires specific storage types for vector sizes
@@ -129,8 +128,7 @@ namespace eigen
 	struct MatrixEigenToCuMat
 	{
 		using type = ::cuMat::Matrix<
-			//typename TypeEigenToCuMat<typename _EigenMatrixType::Scalar>::type,
-			typename _EigenMatrixType::Scalar,
+			typename TypeEigenToCuMat<typename _EigenMatrixType::Scalar>::type,
 			SizeEigenToCuMat<_EigenMatrixType::RowsAtCompileTime>::size,
 			SizeEigenToCuMat<_EigenMatrixType::ColsAtCompileTime>::size,
 			1, //batch size of 1

@@ -19,6 +19,7 @@ set(GTEST_TEST_SOURCES
     TestSparse.cu
     TestConjugateGradient.cu
     TestComplexOps.cu
+    TestEigenInterop.cu
     TestIterators.cu
     main.cu
 )

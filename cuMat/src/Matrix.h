@@ -893,7 +893,7 @@ public:
 		CUMAT_STATIC_ASSERT(_Batches == 1 || _Batches == Dynamic, "Compile-time batches>1 not allowed. Eigen does not support batches");
 		if (_Batches == Dynamic) CUMAT_ASSERT_ARGUMENT(batches() == 1);
 		EigenMatrix_t mat(rows(), cols());
-		copyToHost(mat.data());
+		copyToHost(reinterpret_cast<_Scalar*>(mat.data()));
 		return mat;
 	}
 

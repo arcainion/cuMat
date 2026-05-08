@@ -315,12 +315,12 @@ namespace internal
 	{
 		template<typename _Input, typename _Output, typename _Op, typename _Scalar>
 		__global__ void ReduceThreadKernel(dim3 virtual_size,
-			_Input input, _Output output, _Op op, int N)
+			_Input input, _Output output, _Op op, _Scalar initial, int N)
 		{
 			CUMAT_KERNEL_1D_LOOP(i, virtual_size)
 				const Index O = i * N;
-				_Scalar v = input[O];
-				for (int n = 1; n < N; ++n) v = op(v, input[O + n]);
+				_Scalar v = initial;
+				for (int n = 0; n < N; ++n) v = op(v, input[O + n]);
 				output[i] = v;
 			CUMAT_KERNEL_1D_LOOP_END
 		}
@@ -340,7 +340,7 @@ namespace internal
 				kernels::ReduceThreadKernel<decltype(iterIn), decltype(iterOut), _Op, _Scalar>);
 			kernels::ReduceThreadKernel<decltype(iterIn), decltype(iterOut), _Op, _Scalar>
 				<<< cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>> (
-					cfg.virtual_size, iterIn, iterOut, op, int(numEntries));
+					cfg.virtual_size, iterIn, iterOut, op, initial, int(numEntries));
 			CUMAT_CHECK_ERROR();
 
 #ifdef CUMAT_UNITTESTS_LAST_REDUCTION

@@ -98,4 +98,75 @@ TEST(CGTest, ZeroInitialGuess)
     EXPECT_TRUE(MatrixNear(check, b, 1e-8));
 }
 
+TEST(CGTest, IterationCount)
+{
+    double aData[1][3][3] = {{
+        {5, 2, 1},
+        {2, 6, 1},
+        {1, 1, 7}
+    }};
+    double bData[1][3][1] = {{
+        {8},
+        {9},
+        {9}
+    }};
+    auto A = MatrixXdR::fromArray(aData);
+    auto b = MatrixXdR::fromArray(bData);
+
+    ConjugateGradient<decltype(A), DiagonalPreconditioner<decltype(A)>> cg(A);
+    cg.setTolerance(1e-12);
+    cg.setMaxIterations(100);
+    auto x = cg.solve(b).eval();
+    EXPECT_LE(cg.iterations(), 3);
+    EXPECT_GE(cg.iterations(), 1);
+}
+
+TEST(CGTest, ResidualError)
+{
+    double aData[1][3][3] = {{
+        {5, 2, 1},
+        {2, 6, 1},
+        {1, 1, 7}
+    }};
+    double bData[1][3][1] = {{
+        {8},
+        {9},
+        {9}
+    }};
+    auto A = MatrixXdR::fromArray(aData);
+    auto b = MatrixXdR::fromArray(bData);
+
+    ConjugateGradient<decltype(A), DiagonalPreconditioner<decltype(A)>> cg(A);
+    cg.setTolerance(1e-8);
+    cg.setMaxIterations(100);
+    auto x = cg.solve(b).eval();
+    EXPECT_LT(cg.error(), 1e-8);
+}
+
+TEST(CGTest, NonConvergent)
+{
+    double aData[1][3][3] = {{
+        {5, 2, 1},
+        {2, 6, 1},
+        {1, 1, 7}
+    }};
+    double bData[1][3][1] = {{
+        {8},
+        {9},
+        {9}
+    }};
+    auto A = MatrixXdR::fromArray(aData);
+    auto b = MatrixXdR::fromArray(bData);
+
+    ConjugateGradient<decltype(A), DiagonalPreconditioner<decltype(A)>> cg(A);
+    cg.setTolerance(1e-8);
+    cg.setMaxIterations(1);
+    auto x = cg.solve(b).eval();
+    auto check = (A * x).eval();
+    // With only 1 iteration, the solution should NOT be accurate
+    auto diff = (check - b).eval();
+    double maxDiff = static_cast<double>(diff.cwiseAbs().maxCoeff());
+    EXPECT_GT(maxDiff, 0.1);
+}
+
 

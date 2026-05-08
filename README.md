@@ -78,7 +78,7 @@ cmake --build build --config Release --target cuMat_gtest
 ./build/tests_gtest/Release/cuMat_gtest.exe
 ```
 
-The test suite covers: context management, matrix construction/operations, unary ops, binary ops, reductions, linear algebra (determinant, inverse, LU/Cholesky decomposition), matrix products, sparse matrices (CSR/CSC/ELLPACK), conjugate gradient solver, complex numbers, and iterators.
+The test suite covers: context management, matrix construction/operations, unary ops, binary ops, reductions, linear algebra (determinant, inverse, LU/Cholesky decomposition), matrix products, sparse matrices (CSR/CSC/ELLPACK), conjugate gradient solver, complex numbers, Eigen interop, and iterators.
 
 The old Catch-based test suite (`tests/`) and demo programs (`demos/`) were removed due to CUB compatibility issues with newer CUDA versions.
 
@@ -97,21 +97,20 @@ The following bugs were identified during a source code audit:
 | **HIGH** | `cuMat/src/TransposeOp.h:147-151` | **FIXED** — Added `const_cast` to resolve dangling reference in non-const `coeff()` |
 | **HIGH** | `cuMat/src/ProductOp.h:214-220` | **FIXED** — Added runtime `left_.batches() == 1` check alongside compile-time check |
 
-### Medium-Priority Issues (4 fixed, 2 pending)
+### Medium-Priority Issues (7 fixed, 0 pending)
 
 **Fixed:**
 - `SparseMatrix.h:468-509` — **FIXED**: Added `#if CUMAT_EIGEN_SUPPORT == 1` guards around Eigen-dependent output
 - `ConjugateGradient.h:69` — **FIXED**: Improved static assertion error message (still requires compile-time batch count)
 - `SimpleRandom.h:237` — **FIXED**: Changed `<<<1, ...>>>` to use occupancy-optimized `cfg.block_count`
 - `CholeskyDecomposition.h:108` — **FIXED**: "leaading" → "leading" and removed duplicate "was"
+- `Context.h:371` — **FIXED**: Changed `unsigned int` to `size_t` to avoid silent truncation of 64-bit `Index`.
+- `ReductionOps.h:331-350` — **FIXED**: Thread reduction kernel now accepts and uses the `initial` value instead of reading the first element directly.
+- `EigenInteropHelpers.h` — **FIXED**: Uncommented scalar type conversion in `MatrixCuMatToEigen`/`MatrixEigenToCuMat` so `toEigen()` returns standard Eigen types (e.g., `Eigen::MatrixXcf` instead of `Eigen::Matrix<cfloat,...>`). Fixed `toEigen()` to use `reinterpret_cast` for the type conversion.
 
-**Still pending:**
-- `Context.h:371` — `createLaunchConfig1D` silently truncates `Index` (64-bit) to `unsigned int` on large matrices.
-- `ReductionOps.h:331-350` — Thread reduction kernel doesn't use the initial value; undefined behavior for empty batches.
+### Test Coverage Gaps (53 new tests added, 183 total)
 
-### Test Coverage Gaps (36 new tests added, 166 total)
-
-The gtest-based test suite in `tests_gtest/` now has **166 passing tests** across 11 test suites. The following areas were recently addressed:
+The gtest-based test suite in `tests_gtest/` now has **183 passing tests** across 12 test suites. The following areas were recently addressed:
 
 **Newly tested (Phase 3):**
 - Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseBinaryNot`, `cwiseLogicalNot`, `cwiseRcbrt`, `cwiseInverseCheck`
@@ -127,13 +126,15 @@ The gtest-based test suite in `tests_gtest/` now has **166 passing tests** acros
 - `BinaryOpsPlugin.inl:124-125` — Fixed `binaryExpr()` return type from `UnaryOp` to `BinaryOp` (was dropping the custom functor)
 
 **Still untested:**
-- CSC SpMV (no kernel implementation yet — marked TODO)
-- Sparse matrix-matrix product, `sparseView()`, `direct()`
-- Reduction algorithm variants: `Segmented`, `Thread`, `Block<N>`, `Device<N>` (only `Warp` is tested)
-- Eigen interop: `toEigen()`, `fromEigen()`
-- Complex op gaps: `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions
+- `sparseView()`, `direct()`
 - Integer types beyond `int`
-- CG solver metadata and non-convergent failure path
+
+**Recently filled:**
+- Reduction algorithm variants (`Segmented`, `Thread`, `Block<N>`, `Device<N>`) — **ADDED** 5 tests
+- Eigen interop (`toEigen()`, `fromEigen()`) — **ADDED** 5 tests for column-major, row-major, and complex types
+- Complex op gaps (`cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions) — **ADDED** 10 tests
+- CG solver metadata (`iterations()`, `error()`) and non-convergent path — **ADDED** 3 tests
+- CSR sparse matrix-dense matrix product (SpMM) — **ADDED** kernel and 1 test
 
 ### Missing Features (partially addressed)
 
@@ -185,12 +186,12 @@ These are the recommended next steps, ordered by impact and dependency. ✅ = co
 
 ### Phase 6: Remaining Work
 
-21. **CSC SpMV kernel** — Implement the missing CSC matrix-vector product kernel (blocked by need for atomic operations or different thread mapping)
-22. **Sparse matrix-matrix product** — Not yet implemented for any sparse format
-23. **Reduction algorithm variants** — Test `Segmented`, `Thread`, `Block<N>`, `Device<N>` variants
-24. **Eigen interop tests** — Test `toEigen()` / `fromEigen()` when `CUMAT_EIGEN_SUPPORT` is enabled
-25. **Complex op gaps** — `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions
-26. **CG solver metadata and non-convergent failure path**
+21. ✅ **CSC SpMV kernel** — Implemented as `CSCMVKernel_StaticBatches` with one thread per column using `atomicAdd` for output accumulation. Both `SparseMatrix` and `SparseExpressionOp` specializations added. Tested in `CSCMatrixVectorProduct`.
+22. ✅ **CSR sparse matrix-dense matrix product (SpMM)** — Implemented CSR SpMM kernel (`CSRMMKernel_StaticBatches`) with 2D thread mapping. Added `ProductAssignment` dispatch with runtime vector/matrix detection. Tested in `CSRMatrixMatrixProduct` (3×2 dense result). CSC and ELLPACK SpMM remain unimplemented.
+23. ✅ **Reduction algorithm variants** — Tests added for `Segmented`, `Thread`, `Block<N>`, `Device<N>` variants (5 tests)
+24. ✅ **Eigen interop tests** — Tests added for `toEigen()` / `fromEigen()` when `CUMAT_EIGEN_SUPPORT` is enabled (5 tests)
+25. ✅ **Complex op gaps** — Tests added for `cwiseMul`, `cwiseDiv`, `cwisePow`, complex reductions (10 tests)
+26. ✅ **CG solver metadata and non-convergent failure path** — Tests added for `iterations()` and `error()` metadata; fixed NonConvergent test (was using 3 iterations for a 3×3 system, which converges exactly)
 
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.

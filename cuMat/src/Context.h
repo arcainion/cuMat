@@ -368,9 +368,9 @@ public:
 	template<class T>
 	KernelLaunchConfig createLaunchConfig1D(Index size, T func) const
 	{
-		const unsigned int size_ = static_cast<unsigned int>(size);
+		const size_t size_ = static_cast<size_t>(size);
 		CUMAT_ASSERT_ARGUMENT(size > 0);
-		CUMAT_ASSERT(Index(size_) == size && "size exceeds the range of unsigned int!");
+		CUMAT_ASSERT(Index(size_) == size && "size exceeds the range of size_t!");
 #if 0
 		//Very simplistic first version
 		unsigned int blockSize = 256u;

@@ -158,3 +158,70 @@ TEST(ComplexTest, DoubleComplex)
     }};
     EXPECT_TRUE(MatrixNear(result, MatrixXcdR::fromArray(expected), 1e-12));
 }
+
+TEST(ComplexTest, CwiseMul)
+{
+    cfloat aData[1][2][2] = {{
+        {cfloat(1, 2), cfloat(3, 4)},
+        {cfloat(5, 6), cfloat(7, 8)}
+    }};
+    cfloat bData[1][2][2] = {{
+        {cfloat(2, 0), cfloat(0, 1)},
+        {cfloat(1, 1), cfloat(2, -1)}
+    }};
+    MatrixXcfR a = MatrixXcfR::fromArray(aData);
+    MatrixXcfR b = MatrixXcfR::fromArray(bData);
+    auto result = a.cwiseMul(b).eval();
+    // (1+2i)*(2) = (2+4i)
+    // (3+4i)*(i) = (-4+3i)
+    // (5+6i)*(1+i) = (-1+11i)
+    // (7+8i)*(2-i) = (22+9i)
+    cfloat expected[1][2][2] = {{
+        {cfloat(2, 4), cfloat(-4, 3)},
+        {cfloat(-1, 11), cfloat(22, 9)}
+    }};
+    EXPECT_TRUE(MatrixNear(result, MatrixXcfR::fromArray(expected), 1e-6));
+}
+
+TEST(ComplexTest, CwiseDiv)
+{
+    cfloat aData[1][2][2] = {{
+        {cfloat(2, 4), cfloat(-4, 3)},
+        {cfloat(-1, 11), cfloat(22, 9)}
+    }};
+    cfloat bData[1][2][2] = {{
+        {cfloat(2, 0), cfloat(0, 1)},
+        {cfloat(1, 1), cfloat(2, -1)}
+    }};
+    MatrixXcfR a = MatrixXcfR::fromArray(aData);
+    MatrixXcfR b = MatrixXcfR::fromArray(bData);
+    auto result = a.cwiseDiv(b).eval();
+    // (2+4i)/2 = (1+2i)
+    // (-4+3i)/i = (3+4i)
+    // (-1+11i)/(1+i) = (5+6i)
+    // (22+9i)/(2-i) = (7+8i)
+    cfloat expected[1][2][2] = {{
+        {cfloat(1, 2), cfloat(3, 4)},
+        {cfloat(5, 6), cfloat(7, 8)}
+    }};
+    EXPECT_TRUE(MatrixNear(result, MatrixXcfR::fromArray(expected), 1e-6));
+}
+
+TEST(ComplexTest, CwisePow)
+{
+    cfloat aData[1][2][2] = {{
+        {cfloat(1, 2), cfloat(0, 1)},
+        {cfloat(2, 0), cfloat(1, 1)}
+    }};
+    MatrixXcfR a = MatrixXcfR::fromArray(aData);
+    auto result = a.cwisePow(cfloat(3, 0)).eval();
+    // (1+2i)^3 = (-11-2i)
+    // i^3 = -i
+    // 2^3 = 8
+    // (1+i)^3 = (-2+2i)
+    cfloat expected[1][2][2] = {{
+        {cfloat(-11, -2), cfloat(0, -1)},
+        {cfloat(8, 0), cfloat(-2, 2)}
+    }};
+    EXPECT_TRUE(MatrixNear(result, MatrixXcfR::fromArray(expected), 1e-5));
+}
