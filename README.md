@@ -57,8 +57,8 @@ All other open questions regarding this library are answered there.
 ## Requirements
 cuMat is header-only, but it builds on some third-party libraries:
  - cuBLAS, cuSOLVER: shipped with the CUDA SDK.
- - [CUB](https://nvlabs.github.io/cub/): can be found inside Thrust as part of the CUDA SDK, in the third-party folder of cuMat, or provide your own version.
- - (Optional) [Eigen](http://eigen.tuxfamily.org) for printing matrices and for the Eigen interop. A working version can be found in the third-party folder.
+ - [CUB](https://nvlabs.github.io/cub/): included in the CUDA Toolkit (via Thrust).
+ - [Eigen](http://eigen.tuxfamily.org): used by tests for Eigen interop support. Managed via vcpkg.
 
 ## Building and Testing
 
@@ -110,7 +110,7 @@ The following bugs were identified during a source code audit:
 
 ### Test Coverage Gaps (62 new tests added, 192 total)
 
-The gtest-based test suite in `tests_gtest/` now has **192 passing tests** across 13 test suites. The following areas were recently addressed:
+The gtest-based test suite in `tests_gtest/` now has **193 passing tests** across 13 test suites. The following areas were recently addressed:
 
 **Newly tested (Phase 3):**
 - Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseBinaryNot`, `cwiseLogicalNot`, `cwiseRcbrt`, `cwiseInverseCheck`
@@ -137,6 +137,7 @@ The gtest-based test suite in `tests_gtest/` now has **192 passing tests** acros
 - CSC SpMM — **ADDED** kernel and 1 test (fixed expected values: were copied from CSR test without adjustment)
 - ELLPACK SpMM — **ADDED** kernel and 1 test
 - `SparseExpressionOp::coeff()` comma-operator bug — **FIXED** (was returning `batch` instead of the coefficient)
+- Batched transpose — **ADDED** 1 test verifying 2×2×3 → 2×3×2 transposition
 
 ### Missing Features (partially addressed)
 
@@ -228,6 +229,14 @@ These are the recommended next steps, ordered by impact and dependency. ✅ = co
 42. ✅ **Replace linear search in sparse index evaluator** — Replaced linear search with binary search in CSR and CSC `coordsToLinear` methods in `SparseMatrixBase.h`.
 
 43. ✅ **Make `copyFromHost`/`copyToHost` optionally async** — Added `copyFromHostAsync()` and `copyToHostAsync()` methods alongside the sync versions in `Matrix.h`.
+
+### Phase 9: Dependency Migration to vcpkg ✅ Complete
+
+44. ✅ **Replace bundled Eigen3 with vcpkg-managed version** — Removed `third-party/Eigen/` and replaced `add_subdirectory(third-party/eigen)` with `find_package(Eigen3 CONFIG REQUIRED)` from vcpkg. Added `--threads 0` nvcc flag for parallel compilation.
+45. ✅ **Remove bundled Catch2** — All tests use Google Test (gtest from vcpkg). Removed `third-party/catch/catch.hpp`.
+46. ✅ **Remove bundled CUB** — CUB is now sourced from the CUDA Toolkit 12.4 (via Thrust). Removed `third-party/cub/`.
+47. ✅ **Update README and requirements** — All references to `third-party/` removed from requirements and build documentation.
+48. ✅ **Batched transpose test** — Added `BatchedTranspose` test in `TestUnaryOps.cu` verifying 2×2×3 → 2×3×2 transposition.
 
 ## Performance & Optimization Opportunities
 

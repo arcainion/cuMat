@@ -177,6 +177,20 @@ TEST(UnaryOpTest, Transpose)
     EXPECT_FLOAT_EQ(3, host[2]);
 }
 
+TEST(UnaryOpTest, BatchedTranspose)
+{
+    float data[2][2][3] = {{{1, 2, 3}, {4, 5, 6}}, {{7, 8, 9}, {10, 11, 12}}};
+    BMatrixXfR m = BMatrixXfR::fromArray(data);
+    auto result = m.transpose().eval();
+    EXPECT_EQ(3, result.rows());
+    EXPECT_EQ(2, result.cols());
+    EXPECT_EQ(2, result.batches());
+
+    float expectedData[2][3][2] = {{{1, 4}, {2, 5}, {3, 6}}, {{7, 10}, {8, 11}, {9, 12}}};
+    BMatrixXfR expected = BMatrixXfR::fromArray(expectedData);
+    EXPECT_TRUE(MatrixNear(result, expected, 1e-6));
+}
+
 TEST(UnaryOpTest, CastToDouble)
 {
     float data[1][2][2] = {{{1, 2}, {3, 4}}};
