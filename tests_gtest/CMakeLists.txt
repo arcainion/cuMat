@@ -22,6 +22,7 @@ set(GTEST_TEST_SOURCES
     TestEigenInterop.cu
     TestIntegerTypes.cu
     TestIterators.cu
+    TestFromLinear.cu
     main.cu
 )
 

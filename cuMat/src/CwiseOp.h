@@ -154,7 +154,7 @@ namespace internal
             CUMAT_ASSERT(src.cols() == dst.cols());
             CUMAT_ASSERT(src.batches() == dst.batches());
 
-            CUMAT_LOG_DEBUG("Evaluate component wise expression " << typeid(src.derived()).name()
+            CUMAT_LOG_DEBUG("Evaluate component wise expression " << internal::type_name<decltype(src.derived())>()
 				<< "\n rows=" << src.rows() << ", cols=" << src.cols() << ", batches=" << src.batches());
 
             //here is now the real logic

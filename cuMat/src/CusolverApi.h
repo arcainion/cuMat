@@ -46,7 +46,7 @@ namespace internal
             default: return "";
             }
         }
-        static void cusolverSafeCall(cusolverStatus_t status, const char *file, const int line)
+        void cusolverSafeCall(cusolverStatus_t status, const char *file, const int line)
         {
             if (CUSOLVER_STATUS_SUCCESS != status) {
                 std::string msg = ErrorHelpers::format("cusolverSafeCall() failed at %s:%i : %s\n",
@@ -55,8 +55,8 @@ namespace internal
                 throw cuda_error(msg);
             }
 #if CUMAT_VERBOSE_ERROR_CHECKING==1
-            //insert a device-sync
-            cudaError err = cudaDeviceSynchronize();
+            //sync only the associated stream, not the entire device
+            cudaError err = cudaStreamSynchronize(stream_);
             if (cudaSuccess != err) {
                 std::string msg = ErrorHelpers::format("cusolverSafeCall() failed at %s:%i : %s\n",
                     file, line, cudaGetErrorString(err));
@@ -173,7 +173,7 @@ namespace internal
 #undef CUSOLVER_POTRS_FACTORY
     public:
         /**
-        * \brief This function solves a system of linear equations AX=B where A is a n×n Hermitian matrix, only lower or upper part is meaningful.
+        * \brief This function solves a system of linear equations AX=B where A is a nï¿½n Hermitian matrix, only lower or upper part is meaningful.
         * For details, see http://docs.nvidia.com/cuda/cusolver/index.html#cuds-lt-t-gt-potrs
         * \tparam _Scalar the floating point scalar type
         */
@@ -210,7 +210,7 @@ namespace internal
 #undef CUSOLVER_GETRF_FACTORY
     public:
         /**
-        * \brief This function computes the LU factorization of a m×n matrix P*A=L*U.
+        * \brief This function computes the LU factorization of a mï¿½n matrix P*A=L*U.
         * For details, see http://docs.nvidia.com/cuda/cusolver/index.html#cuds-lt-t-gt-getrf
         * \tparam _Scalar the floating point scalar type
         */

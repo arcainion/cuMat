@@ -458,3 +458,316 @@ TEST(SparseTest, ELLPACKMatrixVectorProduct)
     EXPECT_FLOAT_EQ(3.0f, host[1]);
     EXPECT_FLOAT_EQ(9.0f, host[2]);
 }
+
+// ============================================================
+// Batch-looping strategy tests (cwise evaluation kernels)
+// These tests exercise CwiseCSREvaluationKernel, CwiseCSCEvaluationKernel,
+// and CwiseELLPACKEvaluationKernel with batched matrices.
+// ============================================================
+
+// Shared CSR pattern: 3x3 matrix [1 2 0; 0 3 0; 4 0 5], 5 nnz
+static void createCSRPattern3x3(SparsityPattern<CSR>& pattern)
+{
+    std::vector<int> rowPtr = {0, 2, 3, 5};
+    std::vector<int> colInd = {0, 1, 1, 0, 2};
+    pattern.rows = 3;
+    pattern.cols = 3;
+    pattern.nnz = 5;
+    pattern.JA = Matrix<int, Dynamic, 1, 1, ColumnMajor>(4, 1, 1);
+    pattern.IA = Matrix<int, Dynamic, 1, 1, ColumnMajor>(5, 1, 1);
+    pattern.JA.copyFromHost(rowPtr.data());
+    pattern.IA.copyFromHost(colInd.data());
+}
+
+TEST(SparseTest, BatchedCSR_CopyAssign)
+{
+    SparsityPattern<CSR> pattern;
+    createCSRPattern3x3(pattern);
+    std::vector<float> values = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    const int batches = 3;
+    const int nnz = 5;
+
+    std::vector<float> allValues(nnz * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            allValues[b * nnz + i] = values[i];
+
+    BSMatrixXf A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    BSMatrixXf B(pattern, batches);
+    B = A;
+
+    std::vector<float> host(nnz * batches);
+    B.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            EXPECT_FLOAT_EQ(allValues[b * nnz + i], host[b * nnz + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedCSR_CwiseNegate)
+{
+    SparsityPattern<CSR> pattern;
+    createCSRPattern3x3(pattern);
+    std::vector<float> values = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    const int batches = 3;
+    const int nnz = 5;
+
+    std::vector<float> allValues(nnz * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            allValues[b * nnz + i] = values[i];
+
+    BSMatrixXf A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    BSMatrixXf result(pattern, batches);
+    result = A.cwiseNegate();
+
+    std::vector<float> host(nnz * batches);
+    result.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            EXPECT_FLOAT_EQ(-allValues[b * nnz + i], host[b * nnz + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedCSR_CompoundAdd)
+{
+    SparsityPattern<CSR> pattern;
+    createCSRPattern3x3(pattern);
+    std::vector<float> values = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    const int batches = 3;
+    const int nnz = 5;
+
+    std::vector<float> allValues(nnz * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            allValues[b * nnz + i] = values[i];
+
+    BSMatrixXf A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+    BSMatrixXf B(pattern, batches);
+    B.getData().copyFromHost(allValues.data());
+
+    A += B;
+
+    std::vector<float> host(nnz * batches);
+    A.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            EXPECT_FLOAT_EQ(2 * allValues[b * nnz + i], host[b * nnz + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedCSR_ScalarMultiply)
+{
+    SparsityPattern<CSR> pattern;
+    createCSRPattern3x3(pattern);
+    std::vector<float> values = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    const int batches = 3;
+    const int nnz = 5;
+
+    std::vector<float> allValues(nnz * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            allValues[b * nnz + i] = values[i];
+
+    BSMatrixXf A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    A *= 2.0f;
+
+    std::vector<float> host(nnz * batches);
+    A.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            EXPECT_FLOAT_EQ(2 * allValues[b * nnz + i], host[b * nnz + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedCSR_ManyBatches)
+{
+    SparsityPattern<CSR> pattern;
+    createCSRPattern3x3(pattern);
+    std::vector<float> values = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    const int batches = 10;
+    const int nnz = 5;
+
+    std::vector<float> allValues(nnz * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            allValues[b * nnz + i] = values[i];
+
+    BSMatrixXf A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    A *= 3.0f;
+
+    std::vector<float> host(nnz * batches);
+    A.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            EXPECT_FLOAT_EQ(3 * allValues[b * nnz + i], host[b * nnz + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedCSC_CopyAssign)
+{
+    // CSC matrix: [1 0 2; 0 3 0; 4 0 5]
+    std::vector<int> colPtr = {0, 2, 3, 5};
+    std::vector<int> rowInd = {0, 2, 1, 0, 2};
+    SparsityPattern<CSC> pattern;
+    pattern.rows = 3;
+    pattern.cols = 3;
+    pattern.nnz = 5;
+    pattern.JA = Matrix<int, Dynamic, 1, 1, ColumnMajor>(4, 1, 1);
+    pattern.IA = Matrix<int, Dynamic, 1, 1, ColumnMajor>(5, 1, 1);
+    pattern.JA.copyFromHost(colPtr.data());
+    pattern.IA.copyFromHost(rowInd.data());
+
+    std::vector<float> values = {1.0f, 4.0f, 3.0f, 2.0f, 5.0f};
+    const int batches = 3;
+    const int nnz = 5;
+
+    std::vector<float> allValues(nnz * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            allValues[b * nnz + i] = values[i];
+
+    BSMatrixXf_CSC A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    BSMatrixXf_CSC B(pattern, batches);
+    B = A;
+
+    std::vector<float> host(nnz * batches);
+    B.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            EXPECT_FLOAT_EQ(allValues[b * nnz + i], host[b * nnz + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedCSC_ScalarMultiply)
+{
+    std::vector<int> colPtr = {0, 2, 3, 5};
+    std::vector<int> rowInd = {0, 2, 1, 0, 2};
+    SparsityPattern<CSC> pattern;
+    pattern.rows = 3;
+    pattern.cols = 3;
+    pattern.nnz = 5;
+    pattern.JA = Matrix<int, Dynamic, 1, 1, ColumnMajor>(4, 1, 1);
+    pattern.IA = Matrix<int, Dynamic, 1, 1, ColumnMajor>(5, 1, 1);
+    pattern.JA.copyFromHost(colPtr.data());
+    pattern.IA.copyFromHost(rowInd.data());
+
+    std::vector<float> values = {1.0f, 4.0f, 3.0f, 2.0f, 5.0f};
+    const int batches = 3;
+    const int nnz = 5;
+
+    std::vector<float> allValues(nnz * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            allValues[b * nnz + i] = values[i];
+
+    BSMatrixXf_CSC A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    A *= 2.0f;
+
+    std::vector<float> host(nnz * batches);
+    A.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            EXPECT_FLOAT_EQ(2 * allValues[b * nnz + i], host[b * nnz + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedELLPACK_CopyAssign)
+{
+    SparsityPattern<ELLPACK> pattern;
+    pattern.rows = 3;
+    pattern.cols = 3;
+    pattern.nnzPerRow = 2;
+    std::vector<int> indicesData = {
+        0, 1, 0,
+        2, -1, 2
+    };
+    pattern.indices = Matrix<int, Dynamic, Dynamic, 1, ColumnMajor>(3, 2, 1);
+    pattern.indices.copyFromHost(indicesData.data());
+
+    std::vector<float> values = {1.0f, 3.0f, 4.0f, 2.0f, 0.0f, 5.0f};
+    const int batches = 3;
+    const int nnzTotal = 6;
+
+    std::vector<float> allValues(nnzTotal * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnzTotal; ++i)
+            allValues[b * nnzTotal + i] = values[i];
+
+    BSMatrixXf_ELLPACK A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    BSMatrixXf_ELLPACK B(pattern, batches);
+    B = A;
+
+    std::vector<float> host(nnzTotal * batches);
+    B.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnzTotal; ++i)
+            EXPECT_FLOAT_EQ(allValues[b * nnzTotal + i], host[b * nnzTotal + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedELLPACK_ScalarMultiply)
+{
+    SparsityPattern<ELLPACK> pattern;
+    pattern.rows = 3;
+    pattern.cols = 3;
+    pattern.nnzPerRow = 2;
+    std::vector<int> indicesData = {
+        0, 1, 0,
+        2, -1, 2
+    };
+    pattern.indices = Matrix<int, Dynamic, Dynamic, 1, ColumnMajor>(3, 2, 1);
+    pattern.indices.copyFromHost(indicesData.data());
+
+    std::vector<float> values = {1.0f, 3.0f, 4.0f, 2.0f, 0.0f, 5.0f};
+    const int batches = 3;
+    const int nnzTotal = 6;
+
+    std::vector<float> allValues(nnzTotal * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnzTotal; ++i)
+            allValues[b * nnzTotal + i] = values[i];
+
+    BSMatrixXf_ELLPACK A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    A *= 2.0f;
+
+    std::vector<float> host(nnzTotal * batches);
+    A.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnzTotal; ++i)
+            EXPECT_FLOAT_EQ(2 * allValues[b * nnzTotal + i], host[b * nnzTotal + i]) << "batch=" << b << " nz=" << i;
+}
+
+TEST(SparseTest, BatchedCSR_SingleBatch)
+{
+    SparsityPattern<CSR> pattern;
+    createCSRPattern3x3(pattern);
+    std::vector<float> values = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    const int batches = 1;
+    const int nnz = 5;
+
+    std::vector<float> allValues(nnz * batches);
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            allValues[b * nnz + i] = values[i];
+
+    BSMatrixXf A(pattern, batches);
+    A.getData().copyFromHost(allValues.data());
+
+    A *= 4.0f;
+
+    std::vector<float> host(nnz * batches);
+    A.getData().copyToHost(host.data());
+    for (int b = 0; b < batches; ++b)
+        for (int i = 0; i < nnz; ++i)
+            EXPECT_FLOAT_EQ(4 * allValues[b * nnz + i], host[b * nnz + i]) << "batch=" << b << " nz=" << i;
+}

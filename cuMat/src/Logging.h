@@ -30,6 +30,20 @@
 
 CUMAT_NAMESPACE_BEGIN
 
+namespace internal {
+
+template <typename T>
+const char* type_name() {
+#if defined(_MSC_VER)
+    return __FUNCSIG__;
+#elif defined(__GNUC__) || defined(__clang__) || defined(__CUDACC__)
+    return __PRETTY_FUNCTION__;
+#else
+    return typeid(T).name();
+#endif
+}
+
+} // namespace internal
 
 class DummyLogger
 {

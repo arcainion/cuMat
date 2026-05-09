@@ -63,18 +63,43 @@ public:
     __host__ __device__
     static Index3 fromLinear(Index linear, const Index3& dims, const Index3& stride)
     {
-        //for (int i = 0; i < 3; ++i) outCoords[i] = (linear / stride[i]) % dims[i];
-        //manual loop unrolling
-        Index3 coords = {
-            (linear / thrust::get<0>(stride)) % thrust::get<0>(dims),
-            (linear / thrust::get<1>(stride)) % thrust::get<1>(dims),
-            (linear / thrust::get<2>(stride)) % thrust::get<2>(dims)
-        };
-        //printf("index: %d; stride: %d,%d,%d  -> coords: %d,%d,%d\n",
-        //    (int)linear,
-        //    (int)stride.get<0>(), (int)stride.get<1>(), (int)stride.get<2>(),
-        //    (int)coords.get<0>(), (int)coords.get<1>(), (int)coords.get<2>());
-        return coords;
+        Index s0 = thrust::get<0>(stride);
+        Index s1 = thrust::get<1>(stride);
+        Index s2 = thrust::get<2>(stride);
+        Index d0 = thrust::get<0>(dims);
+        Index d1 = thrust::get<1>(dims);
+        Index d2 = thrust::get<2>(dims);
+        Index c0, c1, c2;
+        if (s0 == s1 || s0 == s2 || s1 == s2)
+        {
+            c0 = (linear / s0) % d0;
+            c1 = (linear / s1) % d1;
+            c2 = (linear / s2) % d2;
+        }
+        else if (s2 >= s0 && s2 >= s1)
+        {
+            c2 = linear / s2; linear -= c2 * s2;
+            if (s0 > s1) {
+                c0 = linear / s0; c1 = linear - c0 * s0;
+            } else {
+                c1 = linear / s1; c0 = linear - c1 * s1;
+            }
+        } else if (s1 >= s0 && s1 >= s2) {
+            c1 = linear / s1; linear -= c1 * s1;
+            if (s0 > s2) {
+                c0 = linear / s0; c2 = linear - c0 * s0;
+            } else {
+                c2 = linear / s2; c0 = linear - c2 * s2;
+            }
+        } else {
+            c0 = linear / s0; linear -= c0 * s0;
+            if (s1 > s2) {
+                c1 = linear / s1; c2 = linear - c1 * s1;
+            } else {
+                c2 = linear / s2; c1 = linear - c2 * s2;
+            }
+        }
+        return thrust::make_tuple(c0, c1, c2);
     }
 
     /// Postfix increment

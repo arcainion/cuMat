@@ -451,7 +451,7 @@ namespace internal
 			bestBlockSize = BlockSize; //force block size
 			minGridSize = std::min(int(numBatches), minGridSize);
 			CUMAT_LOG_DEBUG("Best potential occupancy for "
-				<< typeid(kernels::ReduceBlockKernel<decltype(iterIn), decltype(iterOut), _Op, _Scalar, BlockSize>).name()
+				<< internal::type_name<decltype(kernels::ReduceBlockKernel<decltype(iterIn), decltype(iterOut), _Op, _Scalar, BlockSize>)>()
 				<< " found to be: blocksize=" << bestBlockSize << ", gridSize=" << minGridSize);
 			KernelLaunchConfig cfg = {
 				dim3(internal::narrow_cast<unsigned>(numBatches), 1, 1),
@@ -749,11 +749,11 @@ public:
         CUMAT_ASSERT(cols() == m.cols());
         CUMAT_ASSERT(batches() == m.batches());
 
-        CUMAT_LOG_DEBUG("Evaluate reduction expression " << typeid(derived()).name()
+        CUMAT_LOG_DEBUG("Evaluate reduction expression " << internal::type_name<decltype(derived())>()
 			<< "\n rows=" << m.rows() << ", cols=" << m.cols() << ", batches=" << m.batches()
             << ", axis=" << ((axis_ & Axis::Row) ? "R" : "") << ((axis_ & Axis::Column) ? "C" : "") << ((axis_ & Axis::Batch) ? "B" : ""));
-
-		//simplify axis, less segments are better
+ 
+ 		//simplify axis, less segments are better
 		const int axisSimplified =
 			axis_ == 0 ? 0 : (
 				axis_ | (internal::traits<_Child>::RowsAtCompileTime==1 ? Axis::Row : 0)
@@ -855,7 +855,7 @@ public:
 				      | (internal::traits<_Child>::BatchesAtCompileTime==1 ? Axis::Batch : 0)
 			);
 
-		CUMAT_LOG_DEBUG("Evaluate reduction expression " << typeid(derived()).name()
+		CUMAT_LOG_DEBUG("Evaluate reduction expression " << internal::type_name<decltype(derived())>()
 			<< "\n rows=" << m.rows() << "(" << internal::traits<_Child>::RowsAtCompileTime << ")"
     		<< ", cols=" << m.cols() << "(" << internal::traits<_Child>::ColsAtCompileTime  << ")" 
     		<< ", batches=" << m.batches() << "(" << internal::traits<_Child>::BatchesAtCompileTime << ")"

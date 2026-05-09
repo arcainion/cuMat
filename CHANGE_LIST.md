@@ -34,7 +34,7 @@ All completed changes, fixes, and improvements to cuMat.
 - `BinaryOpsPlugin.inl:124-125` — Fixed `binaryExpr()` return type from `UnaryOp` to `BinaryOp`
 - `SparseExpressionOp::coeff()` — Fixed comma-operator bug that returned `batch` instead of the actual coefficient
 
-## Test Coverage Additions (193 tests, 13 suites)
+## Test Coverage Additions (203 tests, 13 suites)
 
 ### Phase 3 Tests
 - Unary math ops: `cwiseAsin`, `cwiseAcos`, `cwiseAtan`, `cwiseSinh`, `cwiseCosh`, `cwiseTanh`, `cwiseRsqrt`, `cwiseCbrt`, `cwiseBinaryNot`, `cwiseLogicalNot`, `cwiseRcbrt`, `cwiseInverseCheck`
@@ -82,6 +82,14 @@ All completed changes, fixes, and improvements to cuMat.
 - **Binary search in sparse evaluator** — Replaced linear search with binary search in CSR/CSC `coordsToLinear`
 - **Async `copyFromHost`/`copyToHost`** — Added async variants alongside sync versions
 - **Reduced CSC atomicAdd contention** — Replaced direct global-memory `atomicAdd` in `CSCMVKernel_StaticBatches` and `CSCMMKernel_StaticBatches` with a shared-memory hash table (linear probing, 1024 slots). Each thread block accumulates contributions in shared memory first, then flushes with at most 1024 global atomicAdds per block instead of one per non-zero. Fallback to direct atomicAdd when the hash table is full.
+- **Batch-inner runtime heuristic for sparse cwise evaluation** — `SparseEvaluation.h`: Replaced compile-time `#if CUMAT_SPARSE_EVAL_BATCH_INNER` with a runtime heuristic (`CUMAT_SPARSE_EVAL_BATCH_THRESHOLD`, default 4). When `batches > threshold`, the kernel switches from a 2D (outer, batch) parallel strategy to a batch-inner strategy where one thread per outer index iterates all batches, amortizing JA/IA sparsity-pattern loads. Both code paths are compiled into each kernel and selected via a `bool useBatchInner` parameter, with appropriate 1D/2D launch configs chosen at the call site. Applies to CSR, CSC, and ELLPACK formats.
+- **One-thread-per-row runtime heuristic for SpMM** — `SparseProductEvaluation.h`: Added `CUMAT_SPARSE_MM_ACCUM_THRESHOLD` (default 32) for CSRMM and ELLPACKMM kernels. When `cols × Batches <= threshold`, a single thread per row iterates over all output columns and batches, amortizing JA/IA/index loads across columns. The `bool useOneThreadPerRow` runtime parameter selects between the new 1D (one-thread-per-row) and the existing 2D (thread-per-output-element) strategy at the call site based on the threshold.
+- **`StridedMatrixInputIterator::fromLinear` stride-decomposition optimization** — `Iterator.h`: Replaced 3 divisions + 3 modulos per element with sequential decomposition that peels the largest stride first, reducing to 2 divisions (one for the largest stride, one for the next), 2 multiplications, and 2 subtractions. Falls back to the original independent-dimension formula (`(linear/s_i)%d_i`) when any two strides are equal, since the sequential decomposition is ambiguous in that case. This fixes a bug where equal strides (e.g., simplified Row|Batch axis stride `(1,2,2)` for a 2×3×1 matrix) caused incorrect coordinate assignment, producing reduction outputs of 0 for batches beyond the first.
+- **Replaced `typeid()` calls with RTTI-free `type_name<T>()` helper** — `Logging.h`: Added `internal::type_name<T>()` returning `__FUNCSIG__` (MSVC) or `__PRETTY_FUNCTION__` (GCC/Clang/NVCC) instead of `typeid(T).name()`, avoiding forced `type_info` emission for every template instantiation. Replaced all 15 `typeid(...).name()` call sites across `Context.h` (3), `CwiseOp.h` (1), `ReductionOps.h` (3), `SparseEvaluation.h` (1), and `SparseProductEvaluation.h` (7). Removed `#include <typeinfo>` from `Context.h`.
+- **Lighter-weight verbose error checking** — `Errors.h`, `CublasApi.h`, `CusolverApi.h`: Replaced `cudaDeviceSynchronize()` (syncs ALL streams/devices) with per-stream `cudaStreamSynchronize(stream_)` in cuBLAS/cuSOLVER wrappers. Removed device sync entirely from `cudaSafeCall()` (CUDA runtime APIs like `cudaMalloc`, `cudaMemcpy` return errors synchronously — the sync added no value). `cudaCheckError()` also lost its sync (no `Context` access from `Errors.h`). Debug builds with `CUMAT_VERBOSE_ERROR_CHECKING=1` are now significantly less disruptive.
+
+### Phase 8 Tests
+- Batched sparse cwise evaluation — 11 tests covering CSR, CSC, ELLPACK with copy assign, cwise negate, compound add, scalar multiply, many batches (10), and single batch
 
 ## Dependency Migration (Phase 9)
 

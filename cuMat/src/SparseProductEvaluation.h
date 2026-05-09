@@ -5,6 +5,17 @@
 #include "ProductOp.h"
 #include "SparseMatrix.h"
 
+#ifndef CUMAT_SPARSE_MM_ACCUM_THRESHOLD
+/**
+ * \brief Max accumulators per thread in SpMM one-thread-per-row strategy.
+ * When cols * Batches <= threshold, one thread per row iterates over all
+ * output columns and batches, amortizing JA/IA sparsity-pattern loads
+ * across columns. Larger values increase register pressure.
+ * Default: 32 (fits 32 floats in registers with headroom for 255-register limit).
+ */
+#define CUMAT_SPARSE_MM_ACCUM_THRESHOLD 32
+#endif
+
 CUMAT_NAMESPACE_BEGIN
 
 namespace internal
@@ -90,10 +101,12 @@ namespace internal
     //CSR SpMM kernel: sparse matrix * dense matrix -> dense matrix
     //Uses column-fast work mapping: adjacent threads handle the same row with different columns
     //so column-major dense B access is coalesced.
+    //When useOneThreadPerRow is true, one thread per row iterates over all cols and batches,
+    //amortizing JA/IA loads across the column dimension at the cost of higher register pressure.
     template <typename L, typename R, typename M, AssignmentMode Mode, int Batches,
         bool BroadcastMatrix = internal::traits<L>::BatchesAtCompileTime==1,
         bool BroadcastRhs = internal::traits<R>::BatchesAtCompileTime == 1>
-    __global__ void __launch_bounds__(256) CSRMMKernel_StaticBatches(dim3 virtual_size, const L matrix, const R dense, M output)
+    __global__ void __launch_bounds__(256) CSRMMKernel_StaticBatches(dim3 virtual_size, const L matrix, const R dense, M output, bool useOneThreadPerRow)
     {
         typedef typename L::Scalar LeftScalar;
         typedef typename R::Scalar RightScalar;
@@ -102,38 +115,86 @@ namespace internal
         SparsityPattern<CSR>::IndexVector JA = matrix.getSparsityPattern().JA;
         SparsityPattern<CSR>::IndexVector IA = matrix.getSparsityPattern().IA;
         const int nnz = matrix.getSparsityPattern().nnz;
-        CUMAT_KERNEL_2D_LOOP(col, row, virtual_size)
-            int start = JA.getRawCoeff(row);
-            int end = JA.getRawCoeff(row + 1);
-            int len = end - start;
-            OutputScalar value[Batches];
-#pragma unroll
-            for (int b = 0; b < Batches; ++b) value[b] = OutputScalar(0);
-            for (int t = 0; t < len; ++t)
-            {
-                int inner = IA.getRawCoeff(start + t);
-#pragma unroll
-                for (int b = 0; b < Batches; ++b)
+        if (useOneThreadPerRow)
+        {
+            //One thread per row, inner loops over all cols and batches.
+            //Amortizes JA/IA loads across columns.
+            const Index numCols = output.cols();
+            CUMAT_KERNEL_1D_LOOP(row, virtual_size)
+                int start = JA.getRawCoeff(row);
+                int end = JA.getRawCoeff(row + 1);
+                int len = end - start;
+                OutputScalar value[CUMAT_SPARSE_MM_ACCUM_THRESHOLD] = {0};
+                for (int t = 0; t < len; ++t)
                 {
-                    LeftScalar tmp1 = BroadcastMatrix
-                        ? matrix.getSparseCoeff(row, inner, 0, start + t)
-                        : matrix.getSparseCoeff(row, inner, b, start + t + b * nnz);
-                    RightScalar tmp2 = dense.coeff(inner, col, BroadcastRhs ? 0 : b, -1);
-                    OutputScalar tmp3 = Functor::mult(tmp1, tmp2);
-                    value[b] += tmp3;
-                }
-            }
+                    int inner = IA.getRawCoeff(start + t);
+                    for (int c = 0; c < numCols; ++c)
+                    {
+                        int base = c * Batches;
 #pragma unroll
-            for (int b = 0; b < Batches; ++b) {
-                Index linearIndex;
-                if (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags))
-                    linearIndex = row + col * output.rows();
-                else
-                    linearIndex = row * output.cols() + col;
-                linearIndex += b * output.rows() * output.cols();
-                internal::CwiseAssignmentHandler<M, OutputScalar, Mode>::assign(output, value[b], linearIndex);
-            }
-        CUMAT_KERNEL_2D_LOOP_END
+                        for (int b = 0; b < Batches; ++b)
+                        {
+                            LeftScalar tmp1 = BroadcastMatrix
+                                ? matrix.getSparseCoeff(row, inner, 0, start + t)
+                                : matrix.getSparseCoeff(row, inner, b, start + t + b * nnz);
+                            RightScalar tmp2 = dense.coeff(inner, c, BroadcastRhs ? 0 : b, -1);
+                            value[base + b] += Functor::mult(tmp1, tmp2);
+                        }
+                    }
+                }
+                for (int c = 0; c < numCols; ++c)
+                {
+                    int base = c * Batches;
+#pragma unroll
+                    for (int b = 0; b < Batches; ++b)
+                    {
+                        Index linearIndex;
+                        if (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags))
+                            linearIndex = row + c * output.rows();
+                        else
+                            linearIndex = row * output.cols() + c;
+                        linearIndex += b * output.rows() * output.cols();
+                        internal::CwiseAssignmentHandler<M, OutputScalar, Mode>::assign(output, value[base + b], linearIndex);
+                    }
+                }
+            CUMAT_KERNEL_1D_LOOP_END
+        }
+        else
+        {
+            //Default strategy: 2D loop with column-fast mapping, thread per (row, col) pair
+            CUMAT_KERNEL_2D_LOOP(col, row, virtual_size)
+                int start = JA.getRawCoeff(row);
+                int end = JA.getRawCoeff(row + 1);
+                int len = end - start;
+                OutputScalar value[Batches];
+#pragma unroll
+                for (int b = 0; b < Batches; ++b) value[b] = OutputScalar(0);
+                for (int t = 0; t < len; ++t)
+                {
+                    int inner = IA.getRawCoeff(start + t);
+#pragma unroll
+                    for (int b = 0; b < Batches; ++b)
+                    {
+                        LeftScalar tmp1 = BroadcastMatrix
+                            ? matrix.getSparseCoeff(row, inner, 0, start + t)
+                            : matrix.getSparseCoeff(row, inner, b, start + t + b * nnz);
+                        RightScalar tmp2 = dense.coeff(inner, col, BroadcastRhs ? 0 : b, -1);
+                        OutputScalar tmp3 = Functor::mult(tmp1, tmp2);
+                        value[b] += tmp3;
+                    }
+                }
+#pragma unroll
+                for (int b = 0; b < Batches; ++b) {
+                    Index linearIndex;
+                    if (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags))
+                        linearIndex = row + col * output.rows();
+                    else
+                        linearIndex = row * output.cols() + col;
+                    linearIndex += b * output.rows() * output.cols();
+                    internal::CwiseAssignmentHandler<M, OutputScalar, Mode>::assign(output, value[b], linearIndex);
+                }
+            CUMAT_KERNEL_2D_LOOP_END
+        }
     }
 
     //CSC SpMV kernel: one thread per column, uses shared memory hash table to
@@ -317,10 +378,12 @@ namespace internal
 
 		//ELLPACK SpMM kernel: sparse matrix * dense matrix -> dense matrix
 		//One thread per (row, col) of the output
+		//When useOneThreadPerRow is true, one thread per row iterates over all cols and batches,
+		//amortizing index loads across the column dimension.
 		template <typename L, typename R, typename M, AssignmentMode Mode, int Batches,
 			bool BroadcastMatrix = internal::traits<L>::BatchesAtCompileTime == 1,
 			bool BroadcastRhs = internal::traits<R>::BatchesAtCompileTime == 1>
-		__global__ void __launch_bounds__(256) ELLPACKMMKernel_StaticBatches(dim3 virtual_size, const L matrix, const R dense, M output)
+		__global__ void __launch_bounds__(256) ELLPACKMMKernel_StaticBatches(dim3 virtual_size, const L matrix, const R dense, M output, bool useOneThreadPerRow)
 		{
 			typedef typename L::Scalar LeftScalar;
 			typedef typename R::Scalar RightScalar;
@@ -329,32 +392,78 @@ namespace internal
 			const SparsityPattern<SparseFlags::ELLPACK>::IndexMatrix& indices = matrix.getSparsityPattern().indices;
 			const int nnzPerRow = matrix.getSparsityPattern().nnzPerRow;
 			const int rows = matrix.getSparsityPattern().rows;
-			CUMAT_KERNEL_2D_LOOP(row, colOut, virtual_size)
-				OutputScalar value[Batches] = {0};
-				for (int ci = 0; ci < nnzPerRow; ++ci) {
-					int col = indices.coeff(row, ci, 0, -1);
-					if (col < 0) continue;
+			if (useOneThreadPerRow)
+			{
+				//One thread per row, inner loops over all cols and batches.
+				//Amortizes index loads across columns.
+				const Index numCols = output.cols();
+				CUMAT_KERNEL_1D_LOOP(row, virtual_size)
+					OutputScalar value[CUMAT_SPARSE_MM_ACCUM_THRESHOLD] = {0};
+					for (int ci = 0; ci < nnzPerRow; ++ci)
+					{
+						int col = indices.coeff(row, ci, 0, -1);
+						if (col < 0) continue;
+						for (int c = 0; c < numCols; ++c)
+						{
+							int base = c * Batches;
+#pragma unroll
+							for (int b = 0; b < Batches; ++b)
+							{
+								LeftScalar tmp1 = BroadcastMatrix
+									? matrix.getSparseCoeff(row, col, 0, row + ci*rows)
+									: matrix.getSparseCoeff(row, col, b, row + rows*(ci + b*nnzPerRow));
+								RightScalar tmp2 = dense.coeff(col, c, BroadcastRhs ? 0 : b, -1);
+								value[base + b] += Functor::mult(tmp1, tmp2);
+							}
+						}
+					}
+					for (int c = 0; c < numCols; ++c)
+					{
+						int base = c * Batches;
+#pragma unroll
+						for (int b = 0; b < Batches; ++b)
+						{
+							Index linearIndex;
+							if (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags))
+								linearIndex = row + c * output.rows();
+							else
+								linearIndex = row * output.cols() + c;
+							linearIndex += b * output.rows() * output.cols();
+							internal::CwiseAssignmentHandler<M, OutputScalar, Mode>::assign(output, value[base + b], linearIndex);
+						}
+					}
+				CUMAT_KERNEL_1D_LOOP_END
+			}
+			else
+			{
+				//Default strategy: 2D loop, thread per (row, colOut) pair
+				CUMAT_KERNEL_2D_LOOP(row, colOut, virtual_size)
+					OutputScalar value[Batches] = {0};
+					for (int ci = 0; ci < nnzPerRow; ++ci) {
+						int col = indices.coeff(row, ci, 0, -1);
+						if (col < 0) continue;
+#pragma unroll
+						for (int b = 0; b < Batches; ++b) {
+							LeftScalar tmp1 = BroadcastMatrix
+								? matrix.getSparseCoeff(row, col, 0, row + ci*rows)
+								: matrix.getSparseCoeff(row, col, b, row + rows*(ci + b*nnzPerRow));
+							RightScalar tmp2 = dense.coeff(col, colOut, BroadcastRhs ? 0 : b, -1);
+							OutputScalar tmp3 = Functor::mult(tmp1, tmp2);
+							value[b] += tmp3;
+						}
+					}
 #pragma unroll
 					for (int b = 0; b < Batches; ++b) {
-						LeftScalar tmp1 = BroadcastMatrix
-							? matrix.getSparseCoeff(row, col, 0, row + ci*rows)
-							: matrix.getSparseCoeff(row, col, b, row + rows*(ci + b*nnzPerRow));
-						RightScalar tmp2 = dense.coeff(col, colOut, BroadcastRhs ? 0 : b, -1);
-						OutputScalar tmp3 = Functor::mult(tmp1, tmp2);
-						value[b] += tmp3;
+						Index linearIndex;
+						if (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags))
+							linearIndex = row + colOut * output.rows();
+						else
+							linearIndex = row * output.cols() + colOut;
+						linearIndex += b * output.rows() * output.cols();
+						internal::CwiseAssignmentHandler<M, OutputScalar, Mode>::assign(output, value[b], linearIndex);
 					}
-				}
-#pragma unroll
-				for (int b = 0; b < Batches; ++b) {
-					Index linearIndex;
-					if (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags))
-						linearIndex = row + colOut * output.rows();
-					else
-						linearIndex = row * output.cols() + colOut;
-					linearIndex += b * output.rows() * output.cols();
-					internal::CwiseAssignmentHandler<M, OutputScalar, Mode>::assign(output, value[b], linearIndex);
-				}
-			CUMAT_KERNEL_2D_LOOP_END
+				CUMAT_KERNEL_2D_LOOP_END
+			}
 		}
 
 	}
@@ -394,12 +503,12 @@ namespace internal
             if (_SFlag == CSC) dst.setZero();
             if (Op::ColumnsRight == 1)
             {
-                CUMAT_LOG_DEBUG("Evaluate " << formatName() << " SparseMatrix-DenseVector multiplication " << typeid(op.derived()).name()
+                CUMAT_LOG_DEBUG("Evaluate " << formatName() << " SparseMatrix-DenseVector multiplication " << internal::type_name<decltype(op.derived())>()
                     << " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols());
                 Index mvSize = (_SFlag == CSC) ? op.left().cols() : dst.rows();
                 spMVLaunch<DstActual>(ctx, op, dst, mvSize);
             } else {
-                CUMAT_LOG_DEBUG("Evaluate " << formatName() << " SparseMatrix-DenseMatrix multiplication " << typeid(op.derived()).name()
+                CUMAT_LOG_DEBUG("Evaluate " << formatName() << " SparseMatrix-DenseMatrix multiplication " << internal::type_name<decltype(op.derived())>()
                     << " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols()
                     << ", rhsCols=" << op.right().cols());
                 dim3 virtualSize(dst.rows(), dst.cols(), 1);
@@ -449,12 +558,25 @@ namespace internal
         }
         template<typename DstActual>
         static void spMMLaunchImpl(Context& ctx, const Op& op, _Dst& dst, dim3 virtualSize, std::integral_constant<int, CSR>) {
-            KernelLaunchConfig cfg = ctx.createLaunchConfig1D(virtualSize.x * virtualSize.y, kernels::CSRMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
-            // Swap virtualSize to column-fast: (cols, rows) so adjacemt threads share the same row
-            dim3 vsColFast(virtualSize.y, virtualSize.x);
-            kernels::CSRMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
-                <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
-                (vsColFast, op.derived().left().derived(), op.derived().right().derived(), dst.derived());
+            const Index cols = dst.cols();
+            const bool useOneThreadPerRow = cols * Op::Batches <= CUMAT_SPARSE_MM_ACCUM_THRESHOLD;
+            if (useOneThreadPerRow)
+            {
+                KernelLaunchConfig cfg = ctx.createLaunchConfig1D(virtualSize.x, kernels::CSRMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
+                cfg.virtual_size.y = static_cast<unsigned int>(cols);
+                kernels::CSRMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
+                    <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                    (cfg.virtual_size, op.derived().left().derived(), op.derived().right().derived(), dst.derived(), true);
+            }
+            else
+            {
+                KernelLaunchConfig cfg = ctx.createLaunchConfig1D(virtualSize.x * virtualSize.y, kernels::CSRMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
+                // Swap virtualSize to column-fast: (cols, rows) so adjacent threads share the same row
+                dim3 vsColFast(virtualSize.y, virtualSize.x);
+                kernels::CSRMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
+                    <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                    (vsColFast, op.derived().left().derived(), op.derived().right().derived(), dst.derived(), false);
+            }
         }
         template<typename DstActual>
         static void spMMLaunchImpl(Context& ctx, const Op& op, _Dst& dst, dim3 virtualSize, std::integral_constant<int, CSC>) {
@@ -466,10 +588,23 @@ namespace internal
         }
         template<typename DstActual>
         static void spMMLaunchImpl(Context& ctx, const Op& op, _Dst& dst, dim3 virtualSize, std::integral_constant<int, ELLPACK>) {
-            KernelLaunchConfig cfg = ctx.createLaunchConfig1D(virtualSize.x * virtualSize.y, kernels::ELLPACKMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
-            kernels::ELLPACKMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
-                <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
-                (virtualSize, op.derived().left().derived(), op.derived().right().derived(), dst.derived());
+            const Index cols = dst.cols();
+            const bool useOneThreadPerRow = cols * Op::Batches <= CUMAT_SPARSE_MM_ACCUM_THRESHOLD;
+            if (useOneThreadPerRow)
+            {
+                KernelLaunchConfig cfg = ctx.createLaunchConfig1D(virtualSize.x, kernels::ELLPACKMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
+                cfg.virtual_size.y = static_cast<unsigned int>(cols);
+                kernels::ELLPACKMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
+                    <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                    (cfg.virtual_size, op.derived().left().derived(), op.derived().right().derived(), dst.derived(), true);
+            }
+            else
+            {
+                KernelLaunchConfig cfg = ctx.createLaunchConfig1D(virtualSize.x * virtualSize.y, kernels::ELLPACKMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
+                kernels::ELLPACKMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
+                    <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                    (virtualSize, op.derived().left().derived(), op.derived().right().derived(), dst.derived(), false);
+            }
         }
     };
 
@@ -511,16 +646,16 @@ namespace internal
             if (Op::ColumnsRight == 1)
             {
                 //SpMV: matrix * vector
-                CUMAT_LOG_DEBUG("Evaluate CSC SparseMatrix-DenseVector multiplication " << typeid(op.derived()).name()
+                CUMAT_LOG_DEBUG("Evaluate CSC SparseMatrix-DenseVector multiplication " << internal::type_name<decltype(op.derived())>()
                     << " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols());
                 size_t smemSz = kernels::CSC_SMEM_SIZE * (sizeof(int) + sizeof(typename DstActual::Scalar));
                 KernelLaunchConfig cfg = ctx.createLaunchConfig1D(op.left().cols(), kernels::CSCMVKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
     			kernels::CSCMVKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
-                    <<<cfg.block_count, cfg.thread_per_block, smemSz, ctx.stream() >>>
+                    <<<cfg.block_count, cfg.thread_per_block, smemSz, ctx.stream()>>>
                     (cfg.virtual_size, op.derived().left().derived(), op.derived().right().derived(), dst.derived());
             } else {
                 //SpMM: matrix * dense matrix
-                CUMAT_LOG_DEBUG("Evaluate CSC SparseMatrix-DenseMatrix multiplication " << typeid(op.derived()).name()
+                CUMAT_LOG_DEBUG("Evaluate CSC SparseMatrix-DenseMatrix multiplication " << internal::type_name<decltype(op.derived())>()
                     << " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols()
                     << ", rhsCols=" << op.right().cols());
                 size_t smemSz = kernels::CSC_SMEM_SIZE * (sizeof(int) + sizeof(typename DstActual::Scalar));
@@ -569,7 +704,7 @@ namespace internal
             CUMAT_ASSERT(op.cols() == dst.cols());
             CUMAT_ASSERT(op.batches() == dst.batches());
 
-			CUMAT_LOG_DEBUG("Evaluate SparseMatrix-DenseVector multiplication " << typeid(op.derived()).name()
+			CUMAT_LOG_DEBUG("Evaluate SparseMatrix-DenseVector multiplication " << internal::type_name<decltype(op.derived())>()
 				<< " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols());;
 
             //here is now the real logic
@@ -616,7 +751,7 @@ namespace internal
             CUMAT_ASSERT(op.cols() == dst.cols());
             CUMAT_ASSERT(op.batches() == dst.batches());
 
-            CUMAT_LOG_DEBUG("Evaluate ELLPACK SparseExpressionOp-DenseVector multiplication " << typeid(op.derived()).name()
+            CUMAT_LOG_DEBUG("Evaluate ELLPACK SparseExpressionOp-DenseVector multiplication " << internal::type_name<decltype(op.derived())>()
                 << " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols());;
 
             Context& ctx = Context::current();
@@ -661,7 +796,7 @@ namespace internal
             CUMAT_ASSERT(op.cols() == dst.cols());
             CUMAT_ASSERT(op.batches() == dst.batches());
 
-            CUMAT_LOG_DEBUG("Evaluate CSC SparseExpressionOp-DenseVector multiplication " << typeid(op.derived()).name()
+            CUMAT_LOG_DEBUG("Evaluate CSC SparseExpressionOp-DenseVector multiplication " << internal::type_name<decltype(op.derived())>()
                 << " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols());;
 
             Context& ctx = Context::current();

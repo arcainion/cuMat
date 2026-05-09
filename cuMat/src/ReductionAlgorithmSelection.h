@@ -32,10 +32,12 @@ namespace internal
 	 * Given a matrix in ColumnMajor order, these axis
 	 * correspond to the following: inner=Row, middle=Column, outer=Batch.
 	 * 
-	 * The timings from which those selections were determined were evaluated 
-	 * on a Nvidia RTX 2070.
-	 * For a different architecture, you might need to tweak the conditions
-	 * in the source code.
+	 * Each decision boundary is a linear inequality in log2 space:
+	 *   a * log2(numBatches) + b * log2(batchSize) < c
+	 * 
+	 * Default thresholds were tuned on an Nvidia RTX 2070.
+	 * Override any CUMAT_REDUCTION_* macro at compile time to adapt
+	 * to a different GPU architecture.
 	 */
 	struct ReductionAlgorithmSelection
 	{
@@ -67,47 +69,229 @@ namespace internal
 		}
 
 	public:
+		//=========================================================================
+		// Tuning knobs — override any at compile time via -D flag
+		// Each threshold (c) is the RHS of:
+		//   a * log2(numBatches) + b * log2(batchSize) >= c
+		// to enter the corresponding algorithm's region.
+		//=========================================================================
+
+		//--- Inner axis (row reduction) ---
+#ifndef CUMAT_REDUCTION_INNER_DEVICE1_THRESH
+#define CUMAT_REDUCTION_INNER_DEVICE1_THRESH 19.5
+#endif
+#ifndef CUMAT_REDUCTION_INNER_DEVICE1_NB_CAP
+#define CUMAT_REDUCTION_INNER_DEVICE1_NB_CAP 2.5
+#endif
+#ifndef CUMAT_REDUCTION_INNER_DEVICE2_THRESH
+#define CUMAT_REDUCTION_INNER_DEVICE2_THRESH 17.821428571428573
+#endif
+#ifndef CUMAT_REDUCTION_INNER_DEVICE2_NB_MIN
+#define CUMAT_REDUCTION_INNER_DEVICE2_NB_MIN 2.5
+#endif
+#ifndef CUMAT_REDUCTION_INNER_DEVICE2_NB_MAX
+#define CUMAT_REDUCTION_INNER_DEVICE2_NB_MAX 4.25
+#endif
+#ifndef CUMAT_REDUCTION_INNER_DEVICE4_THRESH
+#define CUMAT_REDUCTION_INNER_DEVICE4_THRESH 16.25
+#endif
+#ifndef CUMAT_REDUCTION_INNER_DEVICE4_NB_MIN
+#define CUMAT_REDUCTION_INNER_DEVICE4_NB_MIN 4.25
+#endif
+#ifndef CUMAT_REDUCTION_INNER_DEVICE4_NB_MAX
+#define CUMAT_REDUCTION_INNER_DEVICE4_NB_MAX 5.5
+#endif
+#ifndef CUMAT_REDUCTION_INNER_BLOCK256_THRESH
+#define CUMAT_REDUCTION_INNER_BLOCK256_THRESH 8.0
+#endif
+#ifndef CUMAT_REDUCTION_INNER_BLOCK256_NB_MAX
+#define CUMAT_REDUCTION_INNER_BLOCK256_NB_MAX 5.0
+#endif
+#ifndef CUMAT_REDUCTION_INNER_THREAD_THRESH
+#define CUMAT_REDUCTION_INNER_THREAD_THRESH 2.01875
+#endif
+#ifndef CUMAT_REDUCTION_INNER_THREAD_BS_MIN
+#define CUMAT_REDUCTION_INNER_THREAD_BS_MIN 4.75
+#endif
+
 		static ReductionAlgorithm inner(Index numBatches, Index batchSize)
 		{
-			//adopt to new architectures
-			static const choice CONDITONS[] = {
-				choice{ReductionAlgorithm::Device1, 2, {condition{1.2, 1.0, 19.5}, condition{-1,0,-2.5}}},
-				choice{ReductionAlgorithm::Device2, 3, {condition{0.42857142857142855,1,17.821428571428573}, condition{-1,0,-4.25}, condition{1,0,2.5}}},
-				choice{ReductionAlgorithm::Device4, 3, {condition{0,1,16.25}, condition{-1,0,-5.5}, condition{1,0,4.25}}},
-				choice{ReductionAlgorithm::Block256,2, {condition{-1.6, 1, 8}, condition{-1,0,-5}}},
-				choice{ReductionAlgorithm::Thread,  2, {condition{0.475, -1, 2.01875}, condition{0, -1, -4.75}}}
+			static const choice CONDITIONS[] = {
+				choice{ReductionAlgorithm::Device1, 2, {
+					condition{1.2, 1.0, CUMAT_REDUCTION_INNER_DEVICE1_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_INNER_DEVICE1_NB_CAP}
+				}},
+				choice{ReductionAlgorithm::Device2, 3, {
+					condition{0.42857142857142855, 1, CUMAT_REDUCTION_INNER_DEVICE2_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_INNER_DEVICE2_NB_MAX},
+					condition{1, 0, CUMAT_REDUCTION_INNER_DEVICE2_NB_MIN}
+				}},
+				choice{ReductionAlgorithm::Device4, 3, {
+					condition{0, 1, CUMAT_REDUCTION_INNER_DEVICE4_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_INNER_DEVICE4_NB_MAX},
+					condition{1, 0, CUMAT_REDUCTION_INNER_DEVICE4_NB_MIN}
+				}},
+				choice{ReductionAlgorithm::Block256, 2, {
+					condition{-1.6, 1, CUMAT_REDUCTION_INNER_BLOCK256_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_INNER_BLOCK256_NB_MAX}
+				}},
+				choice{ReductionAlgorithm::Thread, 2, {
+					condition{0.475, -1, CUMAT_REDUCTION_INNER_THREAD_THRESH},
+					condition{0, -1, -CUMAT_REDUCTION_INNER_THREAD_BS_MIN}
+				}}
 			};
 			static const ReductionAlgorithm DEFAULT = ReductionAlgorithm::Warp;
-			return select(CONDITONS, DEFAULT, numBatches, batchSize);
+			return select(CONDITIONS, DEFAULT, numBatches, batchSize);
 		}
+
+		//--- Middle axis (column reduction) ---
+#ifndef CUMAT_REDUCTION_MIDDLE_DEVICE1_THRESH
+#define CUMAT_REDUCTION_MIDDLE_DEVICE1_THRESH 19.5
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_DEVICE1_NB_CAP
+#define CUMAT_REDUCTION_MIDDLE_DEVICE1_NB_CAP 2.5
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_DEVICE2_THRESH
+#define CUMAT_REDUCTION_MIDDLE_DEVICE2_THRESH 15.5
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_DEVICE2_NB_MIN
+#define CUMAT_REDUCTION_MIDDLE_DEVICE2_NB_MIN 2.5
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_DEVICE2_NB_MAX
+#define CUMAT_REDUCTION_MIDDLE_DEVICE2_NB_MAX 4.0
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_DEVICE4_THRESH
+#define CUMAT_REDUCTION_MIDDLE_DEVICE4_THRESH 15.75
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_DEVICE4_NB_MIN
+#define CUMAT_REDUCTION_MIDDLE_DEVICE4_NB_MIN 4.0
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_DEVICE4_NB_MAX
+#define CUMAT_REDUCTION_MIDDLE_DEVICE4_NB_MAX 5.75
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_BLOCK256_THRESH
+#define CUMAT_REDUCTION_MIDDLE_BLOCK256_THRESH 9.0
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_BLOCK256_NB_MAX
+#define CUMAT_REDUCTION_MIDDLE_BLOCK256_NB_MAX 2.5
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_WARP_THRESH
+#define CUMAT_REDUCTION_MIDDLE_WARP_THRESH 4.0
+#endif
+#ifndef CUMAT_REDUCTION_MIDDLE_WARP_NB_MAX
+#define CUMAT_REDUCTION_MIDDLE_WARP_NB_MAX 11.75
+#endif
 
 		static ReductionAlgorithm middle(Index numBatches, Index batchSize)
 		{
-			//adopt to new architectures
-			static const choice CONDITONS[] = {
-				choice{ReductionAlgorithm::Device1, 2, {condition{1.5,1,19.5}, condition{-1,0,-2.5}}},
-				choice{ReductionAlgorithm::Device2, 3, {condition{0,1,15.5}, condition{1,0,2.5}, condition{-1,0,-4}}},
-				choice{ReductionAlgorithm::Device4, 3, {condition{0,1,15.75}, condition{1,0,4}, condition{-1,0,-5.75}}},
-				choice{ReductionAlgorithm::Block256,2, {condition{0,1,9}, condition{-1,0,-2.5}}},
-				choice{ReductionAlgorithm::Warp,  2, {condition{0,1,4}, condition{-1,0,-11.75}}}
+			static const choice CONDITIONS[] = {
+				choice{ReductionAlgorithm::Device1, 2, {
+					condition{1.5, 1, CUMAT_REDUCTION_MIDDLE_DEVICE1_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_MIDDLE_DEVICE1_NB_CAP}
+				}},
+				choice{ReductionAlgorithm::Device2, 3, {
+					condition{0, 1, CUMAT_REDUCTION_MIDDLE_DEVICE2_THRESH},
+					condition{1, 0, CUMAT_REDUCTION_MIDDLE_DEVICE2_NB_MIN},
+					condition{-1, 0, -CUMAT_REDUCTION_MIDDLE_DEVICE2_NB_MAX}
+				}},
+				choice{ReductionAlgorithm::Device4, 3, {
+					condition{0, 1, CUMAT_REDUCTION_MIDDLE_DEVICE4_THRESH},
+					condition{1, 0, CUMAT_REDUCTION_MIDDLE_DEVICE4_NB_MIN},
+					condition{-1, 0, -CUMAT_REDUCTION_MIDDLE_DEVICE4_NB_MAX}
+				}},
+				choice{ReductionAlgorithm::Block256, 2, {
+					condition{0, 1, CUMAT_REDUCTION_MIDDLE_BLOCK256_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_MIDDLE_BLOCK256_NB_MAX}
+				}},
+				choice{ReductionAlgorithm::Warp, 2, {
+					condition{0, 1, CUMAT_REDUCTION_MIDDLE_WARP_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_MIDDLE_WARP_NB_MAX}
+				}}
 			};
 			static const ReductionAlgorithm DEFAULT = ReductionAlgorithm::Thread;
-			return select(CONDITONS, DEFAULT, numBatches, batchSize);
+			return select(CONDITIONS, DEFAULT, numBatches, batchSize);
 		}
+
+		//--- Outer axis (batch reduction) ---
+#ifndef CUMAT_REDUCTION_OUTER_DEVICE1_THRESH
+#define CUMAT_REDUCTION_OUTER_DEVICE1_THRESH 19.0
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_DEVICE1_NB_MIN
+#define CUMAT_REDUCTION_OUTER_DEVICE1_NB_MIN 2.0
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_DEVICE4_THRESH
+#define CUMAT_REDUCTION_OUTER_DEVICE4_THRESH 184.25
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_DEVICE4_NB_MIN
+#define CUMAT_REDUCTION_OUTER_DEVICE4_NB_MIN 2.0
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_DEVICE4_NB_MAX
+#define CUMAT_REDUCTION_OUTER_DEVICE4_NB_MAX 4.25
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_DEVICE2_THRESH
+#define CUMAT_REDUCTION_OUTER_DEVICE2_THRESH 14.085555
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_DEVICE2_NB_MIN
+#define CUMAT_REDUCTION_OUTER_DEVICE2_NB_MIN 2.0
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_DEVICE2_NB_MAX
+#define CUMAT_REDUCTION_OUTER_DEVICE2_NB_MAX 4.25
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_SEGMENTED_THRESH
+#define CUMAT_REDUCTION_OUTER_SEGMENTED_THRESH 11.5
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_SEGMENTED_NB_MIN
+#define CUMAT_REDUCTION_OUTER_SEGMENTED_NB_MIN 4.0
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_SEGMENTED_BS_CAP
+#define CUMAT_REDUCTION_OUTER_SEGMENTED_BS_CAP 8.5
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_BLOCK256_THRESH
+#define CUMAT_REDUCTION_OUTER_BLOCK256_THRESH 8.0
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_BLOCK256_NB_MAX
+#define CUMAT_REDUCTION_OUTER_BLOCK256_NB_MAX 2.0
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_WARP_THRESH
+#define CUMAT_REDUCTION_OUTER_WARP_THRESH 2.75
+#endif
+#ifndef CUMAT_REDUCTION_OUTER_WARP_NB_MAX
+#define CUMAT_REDUCTION_OUTER_WARP_NB_MAX 11.75
+#endif
 
 		static ReductionAlgorithm outer(Index numBatches, Index batchSize)
 		{
-			//adopt to new architectures
-			static const choice CONDITONS[] = {
-				choice{ReductionAlgorithm::Device1, 2, {condition{-1,0,-2}, condition{1.875,1,19}}},
-				choice{ReductionAlgorithm::Device4, 3, {condition{1,0,2}, condition{-1,0,-4.25}, condition{10, 9, 184.25}}},
-				choice{ReductionAlgorithm::Device2, 3, {condition{1,0,2}, condition{-1,0,-4.25}, condition{-0.22222, 1, 14.085555}}},
-				choice{ReductionAlgorithm::Segmented, 3, {condition{1,0,4}, condition{0,1,11.5}, condition{-1,0,-8.5}}},
-				choice{ReductionAlgorithm::Block256,2, {condition{0,1,8}, condition{-1,0,-2}}},
-				choice{ReductionAlgorithm::Warp,  2, {condition{0,1,2.75}, condition{-1,0,-11.75}}}
+			static const choice CONDITIONS[] = {
+				choice{ReductionAlgorithm::Device1, 2, {
+					condition{-1, 0, -CUMAT_REDUCTION_OUTER_DEVICE1_NB_MIN},
+					condition{1.875, 1, CUMAT_REDUCTION_OUTER_DEVICE1_THRESH}
+				}},
+				choice{ReductionAlgorithm::Device4, 3, {
+					condition{1, 0, CUMAT_REDUCTION_OUTER_DEVICE4_NB_MIN},
+					condition{-1, 0, -CUMAT_REDUCTION_OUTER_DEVICE4_NB_MAX},
+					condition{10.0 / 9.0, 1, CUMAT_REDUCTION_OUTER_DEVICE4_THRESH}
+				}},
+				choice{ReductionAlgorithm::Device2, 3, {
+					condition{1, 0, CUMAT_REDUCTION_OUTER_DEVICE2_NB_MIN},
+					condition{-1, 0, -CUMAT_REDUCTION_OUTER_DEVICE2_NB_MAX},
+					condition{-0.22222, 1, CUMAT_REDUCTION_OUTER_DEVICE2_THRESH}
+				}},
+				choice{ReductionAlgorithm::Segmented, 3, {
+					condition{1, 0, CUMAT_REDUCTION_OUTER_SEGMENTED_NB_MIN},
+					condition{0, 1, CUMAT_REDUCTION_OUTER_SEGMENTED_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_OUTER_SEGMENTED_BS_CAP}
+				}},
+				choice{ReductionAlgorithm::Block256, 2, {
+					condition{0, 1, CUMAT_REDUCTION_OUTER_BLOCK256_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_OUTER_BLOCK256_NB_MAX}
+				}},
+				choice{ReductionAlgorithm::Warp, 2, {
+					condition{0, 1, CUMAT_REDUCTION_OUTER_WARP_THRESH},
+					condition{-1, 0, -CUMAT_REDUCTION_OUTER_WARP_NB_MAX}
+				}}
 			};
 			static const ReductionAlgorithm DEFAULT = ReductionAlgorithm::Thread;
-			return select(CONDITONS, DEFAULT, numBatches, batchSize);
+			return select(CONDITIONS, DEFAULT, numBatches, batchSize);
 		}
 	};
 }

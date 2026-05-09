@@ -6,7 +6,6 @@
 #include <thread>
 #include <mutex>
 #include <algorithm>
-#include <typeinfo>
 
 #include "Macros.h"
 #include "ForwardDeclarations.h"
@@ -393,7 +392,7 @@ Context(int device = 0)
 		int minGridSize = 0, bestBlockSize = 0;
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
 		int numBlocks = std::max(int(CUMAT_DIV_UP(size_, bestBlockSize)), minGridSize);
-		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
+		CUMAT_LOG_DEBUG("Best potential occupancy for " << internal::type_name<T>() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
 		KernelLaunchConfig cfg = {
 			dim3(size_, 1, 1),
 			dim3(bestBlockSize, 1, 1),
@@ -421,7 +420,7 @@ Context(int device = 0)
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
 		unsigned int totalWork = sizex * sizey;
 		int numBlocks = std::max(int(CUMAT_DIV_UP(totalWork, bestBlockSize)), minGridSize);
-		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
+		CUMAT_LOG_DEBUG("Best potential occupancy for " << internal::type_name<T>() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
 		KernelLaunchConfig cfg = {
 			dim3(sizex, sizey, 1),
 			dim3(bestBlockSize, 1, 1),
@@ -450,7 +449,7 @@ Context(int device = 0)
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
 		unsigned int totalWork = sizex * sizey * sizez;
 		int numBlocks = std::max(int(CUMAT_DIV_UP(totalWork, bestBlockSize)), minGridSize);
-		CUMAT_LOG_DEBUG("Best potential occupancy for " << typeid(T).name() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
+		CUMAT_LOG_DEBUG("Best potential occupancy for " << internal::type_name<T>() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
 		KernelLaunchConfig cfg = {
 			dim3(sizex, sizey, sizez),
 			dim3(bestBlockSize, 1, 1),

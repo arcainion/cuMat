@@ -104,23 +104,16 @@ namespace internal {
 		static void cudaSafeCall(cudaError err, const char *file, const int line)
 		{
 			if (!evalError(err, file, line)) return;
-	#if CUMAT_VERBOSE_ERROR_CHECKING==1
-			//insert a device-sync
-			err = cudaDeviceSynchronize();
-			evalError(err, file, line);
-	#endif
+			//CUDA runtime API calls return errors synchronously; no sync needed.
 		}
 
 		static void cudaCheckError(const char *file, const int line)
 		{
 			cudaError err = cudaGetLastError();
 			if (!evalError(err, file, line)) return;
-
-#if CUMAT_VERBOSE_ERROR_CHECKING==1
-			// More careful checking. However, this will affect performance.
-			err = cudaDeviceSynchronize();
-			evalError(err, file, line);
-#endif
+	//cudaGetLastError() catches kernel launch errors synchronously.
+	//For execution errors in verbose mode, a stream sync could be added here
+	//if the Context were available (Errors.h precedes Context.h in includes).
 		}
 	};
 

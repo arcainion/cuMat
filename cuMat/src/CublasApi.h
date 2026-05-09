@@ -48,7 +48,7 @@ namespace internal
             default: return "";
             }
         }
-        static void cublasSafeCall(cublasStatus_t status, const char *file, const int line)
+        void cublasSafeCall(cublasStatus_t status, const char *file, const int line)
         {
             if (CUBLAS_STATUS_SUCCESS != status) {
                 std::string msg = ErrorHelpers::format("cublasSafeCall() failed at %s:%i : %s\n",
@@ -57,8 +57,8 @@ namespace internal
                 throw cuda_error(msg);
             }
 #if CUMAT_VERBOSE_ERROR_CHECKING==1
-            //insert a device-sync
-            cudaError err = cudaDeviceSynchronize();
+            //sync only the associated stream, not the entire device
+            cudaError err = cudaStreamSynchronize(stream_);
             if (cudaSuccess != err) {
                 std::string msg = ErrorHelpers::format("cublasSafeCall() failed at %s:%i : %s\n",
                     file, line, cudaGetErrorString(err));

@@ -78,7 +78,7 @@ cmake --build build --config Release --target cuMat_gtest
 ./build/tests_gtest/Release/cuMat_gtest.exe
 ```
 
-The test suite covers: context management, matrix construction/operations, unary ops, binary ops, reductions, linear algebra (determinant, inverse, LU/Cholesky decomposition), matrix products, sparse matrices (CSR/CSC/ELLPACK), conjugate gradient solver, complex numbers, Eigen interop, integer types (long, long long), and iterators.
+The test suite covers: context management, matrix construction/operations, unary ops, binary ops, reductions, linear algebra (determinant, inverse, LU/Cholesky decomposition), matrix products, sparse matrices (CSR/CSC/ELLPACK) including batched cwise ops, conjugate gradient solver, complex numbers, Eigen interop, integer types (long, long long), and iterators.
 
 The old Catch-based test suite (`tests/`) and demo programs (`demos/`) were removed due to CUB compatibility issues with newer CUDA versions.
 
@@ -87,7 +87,7 @@ The old Catch-based test suite (`tests/`) and demo programs (`demos/`) were remo
 cuMat is a mature header-only library with broad functionality. See [CHANGE_LIST.md](CHANGE_LIST.md) for a complete record of all fixes, improvements, and changes.
 
 ### Test Coverage
-The gtest-based test suite has **193 passing tests** across 13 test suites covering: context management, matrix construction/operations, unary ops, binary ops, reductions, linear algebra (determinant, inverse, LU/Cholesky decomposition), matrix products, sparse matrices (CSR/CSC/ELLPACK), conjugate gradient solver, complex numbers, Eigen interop, integer types (long, long long), and iterators.
+The gtest-based test suite has **205 passing tests** across 14 test suites covering: context management, matrix construction/operations, unary ops, binary ops, reductions, linear algebra (determinant, inverse, LU/Cholesky decomposition), matrix products, sparse matrices (CSR/CSC/ELLPACK) including batched cwise ops, conjugate gradient solver, complex numbers, Eigen interop, integer types (long, long long), iterators, and fromLinear optimization verification.
 
 ### Known Limitations
 - ConjugateGradient does not support `Dynamic` batch sizes
@@ -108,14 +108,13 @@ Several performance items from the original audit have been addressed (see [CHAN
 
 ### Medium Priority
 
-- **Redundant global reads of sparse index arrays across batches** — CSR/CSC SpMV kernels read `IA[row]` and `JA[row]` from global memory for every batch; for `Batches > 1` these are identical across batches.
 - **Thread reduction kernel selection thresholds** — Thresholds in `ReductionAlgorithmSelection.h` were tuned on an RTX 2070 and may be suboptimal on other architectures.
-- **`StridedMatrixInputIterator` — 3 divisions + 3 modulos per element** — `Iterator.h:64-78` computes `(linear / stride) % dim` for each of three dimensions on every element access.
-- **Synchronization-heavy debug mode** — `CUMAT_VERBOSE_ERROR_CHECKING=1` calls `cudaDeviceSynchronize()` after every API call, making Debug builds fully synchronous.
+- ~~**`StridedMatrixInputIterator` — 3 divisions + 3 modulos per element** — `Iterator.h:64-78` — **DONE**: Replaced with sequential stride decomposition; falls back to original formula when strides are equal.~~
+- ~~**Synchronization-heavy debug mode** — `CUMAT_VERBOSE_ERROR_CHECKING=1` — **DONE**: Replaced `cudaDeviceSynchronize()` with `cudaStreamSynchronize(stream_)` in cuBLAS/cuSOLVER wrappers; removed sync entirely from `cudaSafeCall` (CUDA runtime APIs return errors synchronously).~~
 
 ### Low Priority
 
-- **`typeid()` in debug logging forces RTTI emission** — 17 `CUMAT_LOG_DEBUG` calls use `typeid(T).name()`, forcing type_info emission for every template instantiation.
+- ~~**`typeid()` in debug logging forces RTTI emission** — 17 `CUMAT_LOG_DEBUG` calls use `typeid(T).name()`, forcing type_info emission for every template instantiation. **DONE**: Added `internal::type_name<T>()` helper based on `__FUNCSIG__`/`__PRETTY_FUNCTION__` (no RTTI). Replaced all 15 call sites and removed `#include <typeinfo>` from `Context.h`.~~
 - **`createLaunchConfig2D/3D` use 1D thread blocks** — Always creates `dim3(bestBlockSize, 1, 1)` blocks; no 2D block-level spatial locality is exploited.
 - **Hardcoded warp size of 32** — `ReductionOps.h:360-387` hardcodes `32` in the warp reduction kernel.
 - **Dead code** — `Context.h:374-382` has a commented-out hardcoded block size of 256.
