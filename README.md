@@ -105,7 +105,6 @@ Several performance items from the original audit have been addressed (see [CHAN
 ### High Priority
 
 - **Missing `const __restrict__` on all kernel parameters** — Blocked: MSVC host compiler rejects `__restrict__` on value-type kernel parameters. Only raw pointer parameters are annotated.
-- **CSC SpMV/SpMM `atomicAdd` contention** — `CSCMVKernel_StaticBatches` and `CSCMMKernel_StaticBatches` use `atomicAdd` for output accumulation, causing contention when multiple columns write to the same output row. Converting CSC to CSR format is recommended.
 
 ### Medium Priority
 

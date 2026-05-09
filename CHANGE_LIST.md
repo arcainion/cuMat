@@ -81,6 +81,7 @@ All completed changes, fixes, and improvements to cuMat.
 - **Eliminated linear→coord→linear round-trip** — Added `CwiseEvalHelper` with `DirectSrc` path using `rawCoeff(index)` for direct-access sources
 - **Binary search in sparse evaluator** — Replaced linear search with binary search in CSR/CSC `coordsToLinear`
 - **Async `copyFromHost`/`copyToHost`** — Added async variants alongside sync versions
+- **Reduced CSC atomicAdd contention** — Replaced direct global-memory `atomicAdd` in `CSCMVKernel_StaticBatches` and `CSCMMKernel_StaticBatches` with a shared-memory hash table (linear probing, 1024 slots). Each thread block accumulates contributions in shared memory first, then flushes with at most 1024 global atomicAdds per block instead of one per non-zero. Fallback to direct atomicAdd when the hash table is full.
 
 ## Dependency Migration (Phase 9)
 

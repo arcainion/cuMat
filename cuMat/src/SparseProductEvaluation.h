@@ -136,7 +136,13 @@ namespace internal
         CUMAT_KERNEL_2D_LOOP_END
     }
 
-    //CSC SpMV kernel: one thread per column, uses atomicAdd for output accumulation
+    //CSC SpMV kernel: one thread per column, uses shared memory hash table to
+    //batch atomicAdd operations and reduce contention when multiple columns write
+    //to the same output row.
+    //Uses linear-probing hash table in shared memory: each entry stores (key, value).
+    //After all columns are processed, the table is flushed to global memory via atomicAdd.
+    //If the hash table fills up, falls back to direct global atomicAdd.
+    enum { CSC_SMEM_SIZE = 1024 };
     template <typename L, typename R, typename M, AssignmentMode Mode, int Batches,
         bool BroadcastMatrix = internal::traits<L>::BatchesAtCompileTime==1,
         bool BroadcastRhs = internal::traits<R>::BatchesAtCompileTime == 1>
@@ -146,6 +152,14 @@ namespace internal
         typedef typename R::Scalar RightScalar;
         typedef typename M::Scalar OutputScalar;
         typedef ProductElementFunctor<LeftScalar, RightScalar, ProductArgOp::NONE, ProductArgOp::NONE, ProductArgOp::NONE> Functor;
+        extern __shared__ char smem[];
+        int* slot_key = (int*)smem;
+        OutputScalar* slot_val = (OutputScalar*)(smem + CSC_SMEM_SIZE * sizeof(int));
+        for (int i = threadIdx.x; i < CSC_SMEM_SIZE; i += blockDim.x) {
+            slot_key[i] = -1;
+            slot_val[i] = OutputScalar(0);
+        }
+        __syncthreads();
         SparsityPattern<CSC>::IndexVector JA = matrix.getSparsityPattern().JA;
         SparsityPattern<CSC>::IndexVector IA = matrix.getSparsityPattern().IA;
         const int nnz = matrix.getSparsityPattern().nnz;
@@ -165,14 +179,34 @@ namespace internal
                         : matrix.getSparseCoeff(inner, outer, b, i + b * nnz);
                     RightScalar tmp2 = vector.coeff(outer, 0, BroadcastRhs ? 0 : b, -1);
                     OutputScalar tmp3 = Functor::mult(tmp1, tmp2);
-                    atomicAdd(&outputData[inner + b * rows], tmp3);
+                    int key = inner + b * rows;
+                    unsigned int slot = (unsigned int)(key * 2654435761U) % CSC_SMEM_SIZE;
+                    int old = atomicCAS(&slot_key[slot], -1, key);
+                    int probe = 0;
+                    while (old != -1 && old != key) {
+                        slot = (slot + 1) % CSC_SMEM_SIZE;
+                        old = atomicCAS(&slot_key[slot], -1, key);
+                        if (++probe >= CSC_SMEM_SIZE) {
+                            atomicAdd(&outputData[key], tmp3);
+                            goto next_batch;
+                        }
+                    }
+                    atomicAdd(&slot_val[slot], tmp3);
+                    next_batch:;
                 }
             }
         CUMAT_KERNEL_1D_LOOP_END
+        __syncthreads();
+        for (int i = threadIdx.x; i < CSC_SMEM_SIZE; i += blockDim.x) {
+            int key = slot_key[i];
+            if (key != -1) {
+                atomicAdd(&outputData[key], slot_val[i]);
+            }
+        }
     }
 
     //CSC SpMM kernel: sparse matrix * dense matrix -> dense matrix
-    //One thread per column of the sparse matrix, uses atomicAdd for output accumulation
+    //Uses shared memory hash table to batch atomicAdd operations and reduce contention.
     template <typename L, typename R, typename M, AssignmentMode Mode, int Batches,
         bool BroadcastMatrix = internal::traits<L>::BatchesAtCompileTime==1,
         bool BroadcastRhs = internal::traits<R>::BatchesAtCompileTime == 1>
@@ -182,11 +216,22 @@ namespace internal
         typedef typename R::Scalar RightScalar;
         typedef typename M::Scalar OutputScalar;
         typedef ProductElementFunctor<LeftScalar, RightScalar, ProductArgOp::NONE, ProductArgOp::NONE, ProductArgOp::NONE> Functor;
+        extern __shared__ char smem[];
+        int* slot_key = (int*)smem;
+        OutputScalar* slot_val = (OutputScalar*)(smem + CSC_SMEM_SIZE * sizeof(int));
+        for (int i = threadIdx.x; i < CSC_SMEM_SIZE; i += blockDim.x) {
+            slot_key[i] = -1;
+            slot_val[i] = OutputScalar(0);
+        }
+        __syncthreads();
         SparsityPattern<CSC>::IndexVector JA = matrix.getSparsityPattern().JA;
         SparsityPattern<CSC>::IndexVector IA = matrix.getSparsityPattern().IA;
         const int nnz = matrix.getSparsityPattern().nnz;
         const int rows = matrix.rows();
         const int cols = output.cols();
+        const int rowStride = (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags)) ? 1 : output.cols();
+        const int colStride = (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags)) ? output.rows() : 1;
+        const int batchStride = output.rows() * output.cols();
         OutputScalar* outputData = output.data();
         CUMAT_KERNEL_1D_LOOP(outer, virtual_size)
             int start = JA.getRawCoeff(outer);
@@ -204,17 +249,31 @@ namespace internal
                             : matrix.getSparseCoeff(inner, outer, b, i + b * nnz);
                         RightScalar tmp2 = dense.coeff(outer, c, BroadcastRhs ? 0 : b, -1);
                         OutputScalar tmp3 = Functor::mult(tmp1, tmp2);
-                        Index linearIndex;
-                        if (CUMAT_IS_COLUMN_MAJOR(traits<M>::Flags))
-                            linearIndex = inner + c * output.rows();
-                        else
-                            linearIndex = inner * output.cols() + c;
-                        linearIndex += b * output.rows() * output.cols();
-                        atomicAdd(&outputData[linearIndex], tmp3);
+                        int key = inner * rowStride + c * colStride + b * batchStride;
+                        unsigned int slot = (unsigned int)(key * 2654435761U) % CSC_SMEM_SIZE;
+                        int old = atomicCAS(&slot_key[slot], -1, key);
+                        int probe = 0;
+                        while (old != -1 && old != key) {
+                            slot = (slot + 1) % CSC_SMEM_SIZE;
+                            old = atomicCAS(&slot_key[slot], -1, key);
+                            if (++probe >= CSC_SMEM_SIZE) {
+                                atomicAdd(&outputData[key], tmp3);
+                                goto next_batch_mm;
+                            }
+                        }
+                        atomicAdd(&slot_val[slot], tmp3);
+                        next_batch_mm:;
                     }
                 }
             }
         CUMAT_KERNEL_1D_LOOP_END
+        __syncthreads();
+        for (int i = threadIdx.x; i < CSC_SMEM_SIZE; i += blockDim.x) {
+            int key = slot_key[i];
+            if (key != -1) {
+                atomicAdd(&outputData[key], slot_val[i]);
+            }
+        }
     }
 
     }
@@ -371,8 +430,9 @@ namespace internal
         template<typename DstActual>
         static void spMVLaunchImpl(Context& ctx, const Op& op, _Dst& dst, Index mvSize, std::integral_constant<int, CSC>) {
             KernelLaunchConfig cfg = ctx.createLaunchConfig1D(mvSize, kernels::CSCMVKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
+            size_t smemSize = kernels::CSC_SMEM_SIZE * (sizeof(int) + sizeof(typename DstActual::Scalar));
             kernels::CSCMVKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
-                <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                <<<cfg.block_count, cfg.thread_per_block, smemSize, ctx.stream() >>>
                 (cfg.virtual_size, op.derived().left().derived(), op.derived().right().derived(), dst.derived());
         }
         template<typename DstActual>
@@ -399,8 +459,9 @@ namespace internal
         template<typename DstActual>
         static void spMMLaunchImpl(Context& ctx, const Op& op, _Dst& dst, dim3 virtualSize, std::integral_constant<int, CSC>) {
             KernelLaunchConfig cfg = ctx.createLaunchConfig1D(virtualSize.x * virtualSize.y, kernels::CSCMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
+            size_t smemSize = kernels::CSC_SMEM_SIZE * (sizeof(int) + sizeof(typename DstActual::Scalar));
             kernels::CSCMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
-                <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                <<<cfg.block_count, cfg.thread_per_block, smemSize, ctx.stream() >>>
                 (virtualSize, op.derived().left().derived(), op.derived().right().derived(), dst.derived());
         }
         template<typename DstActual>
@@ -452,19 +513,21 @@ namespace internal
                 //SpMV: matrix * vector
                 CUMAT_LOG_DEBUG("Evaluate CSC SparseMatrix-DenseVector multiplication " << typeid(op.derived()).name()
                     << " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols());
+                size_t smemSz = kernels::CSC_SMEM_SIZE * (sizeof(int) + sizeof(typename DstActual::Scalar));
                 KernelLaunchConfig cfg = ctx.createLaunchConfig1D(op.left().cols(), kernels::CSCMVKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
     			kernels::CSCMVKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
-                    <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                    <<<cfg.block_count, cfg.thread_per_block, smemSz, ctx.stream() >>>
                     (cfg.virtual_size, op.derived().left().derived(), op.derived().right().derived(), dst.derived());
             } else {
                 //SpMM: matrix * dense matrix
                 CUMAT_LOG_DEBUG("Evaluate CSC SparseMatrix-DenseMatrix multiplication " << typeid(op.derived()).name()
                     << " matrix rows=" << op.derived().left().rows() << ", cols=" << op.left().cols()
                     << ", rhsCols=" << op.right().cols());
+                size_t smemSz = kernels::CSC_SMEM_SIZE * (sizeof(int) + sizeof(typename DstActual::Scalar));
                 dim3 virtualSize(dst.rows(), dst.cols(), 1);
                 KernelLaunchConfig cfg = ctx.createLaunchConfig1D(virtualSize.x * virtualSize.y, kernels::CSCMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
     			kernels::CSCMMKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
-                    <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                    <<<cfg.block_count, cfg.thread_per_block, smemSz, ctx.stream() >>>
                     (virtualSize, op.derived().left().derived(), op.derived().right().derived(), dst.derived());
             }
             CUMAT_CHECK_ERROR();
@@ -603,9 +666,10 @@ namespace internal
 
             Context& ctx = Context::current();
             dst.setZero();
+            size_t smemSz = kernels::CSC_SMEM_SIZE * (sizeof(int) + sizeof(typename DstActual::Scalar));
             KernelLaunchConfig cfg = ctx.createLaunchConfig1D(op.left().cols(), kernels::CSCMVKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>);
             kernels::CSCMVKernel_StaticBatches<SrcLeft, typename _SrcRight::Type, DstActual, _AssignmentMode, Op::Batches>
-                <<<cfg.block_count, cfg.thread_per_block, 0, ctx.stream() >>>
+                <<<cfg.block_count, cfg.thread_per_block, smemSz, ctx.stream() >>>
                 (cfg.virtual_size, op.derived().left().derived(), op.derived().right().derived(), dst.derived());
             CUMAT_CHECK_ERROR();
             CUMAT_LOG_DEBUG("Evaluation done");
