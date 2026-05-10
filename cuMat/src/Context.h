@@ -6,6 +6,7 @@
 #include <thread>
 #include <mutex>
 #include <algorithm>
+#include <cmath>
 
 #include "Macros.h"
 #include "ForwardDeclarations.h"
@@ -104,12 +105,13 @@ struct KernelLaunchConfig
  * \brief 2D-loop over the jobs in a kernel, coordinate i runs fastest.
  * Has to be closed with CUMAT_KERNEL_2D_LOOP_END
  */
-#define CUMAT_KERNEL_2D_LOOP(i, j, virtual_size)							\
-	for (CUMAT_NAMESPACE Index __i = blockIdx.x * blockDim.x + threadIdx.x;	\
-		 __i < virtual_size.x*virtual_size.y;								\
-		 __i += blockDim.x * gridDim.x) {									\
-		 CUMAT_NAMESPACE Index j = __i / virtual_size.x;					\
-		 CUMAT_NAMESPACE Index i = __i - j * virtual_size.x;
+#define CUMAT_KERNEL_2D_LOOP(i, j, virtual_size)								\
+	for (CUMAT_NAMESPACE Index j = blockIdx.y * blockDim.y + threadIdx.y;		\
+		 j < static_cast<CUMAT_NAMESPACE Index>(virtual_size.y);				\
+		 j += blockDim.y * gridDim.y)											\
+		for (CUMAT_NAMESPACE Index i = blockIdx.x * blockDim.x + threadIdx.x;	\
+			 i < static_cast<CUMAT_NAMESPACE Index>(virtual_size.x);			\
+			 i += blockDim.x * gridDim.x) {
 #define CUMAT_KERNEL_2D_LOOP_END }
 
  /**
@@ -117,12 +119,15 @@ struct KernelLaunchConfig
  * Has to be closed with CUMAT_KERNEL_3D_LOOP_END
  */
 #define CUMAT_KERNEL_3D_LOOP(i, j, k, virtual_size) 												\
-	for (CUMAT_NAMESPACE Index __i = blockIdx.x * blockDim.x + threadIdx.x;							\
-		 __i < virtual_size.x*virtual_size.y*virtual_size.z;										\
-		 __i += blockDim.x * gridDim.x) {															\
-		 CUMAT_NAMESPACE Index k = __i / (virtual_size.x*virtual_size.y);							\
-		 CUMAT_NAMESPACE Index j = (__i - (k * virtual_size.x*virtual_size.y)) / virtual_size.x;	\
-		 CUMAT_NAMESPACE Index i = __i - virtual_size.x * (j + virtual_size.y * k);
+	for (CUMAT_NAMESPACE Index k = blockIdx.z * blockDim.z + threadIdx.z;							\
+		 k < static_cast<CUMAT_NAMESPACE Index>(virtual_size.z);									\
+		 k += blockDim.z * gridDim.z)																\
+		for (CUMAT_NAMESPACE Index j = blockIdx.y * blockDim.y + threadIdx.y;						\
+			 j < static_cast<CUMAT_NAMESPACE Index>(virtual_size.y);								\
+			 j += blockDim.y * gridDim.y)															\
+			for (CUMAT_NAMESPACE Index i = blockIdx.x * blockDim.x + threadIdx.x;					\
+				 i < static_cast<CUMAT_NAMESPACE Index>(virtual_size.x);							\
+				 i += blockDim.x * gridDim.x) {
 #define CUMAT_KERNEL_3D_LOOP_END }
 
 /**
@@ -418,13 +423,37 @@ Context(int device = 0)
 		CUMAT_ASSERT_ARGUMENT(sizey > 0);
 		int minGridSize = 0, bestBlockSize = 0;
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
-		unsigned int totalWork = sizex * sizey;
-		int numBlocks = std::max(int(CUMAT_DIV_UP(totalWork, bestBlockSize)), minGridSize);
-		CUMAT_LOG_DEBUG("Best potential occupancy for " << internal::type_name<T>() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
+
+		// Factor bestBlockSize into 2D block dimensions for spatial locality
+		unsigned int blockX = static_cast<unsigned int>(std::sqrt(static_cast<double>(bestBlockSize)));
+		if (blockX > sizex) blockX = sizex;
+		if (blockX < 1) blockX = 1;
+		unsigned int blockY = static_cast<unsigned int>(bestBlockSize) / blockX;
+		if (blockY > sizey) blockY = sizey;
+		if (blockY < 1) blockY = 1;
+		while (blockX * blockY > static_cast<unsigned int>(bestBlockSize) && blockX > 1)
+			blockX--;
+
+		unsigned int gridX = CUMAT_DIV_UP(sizex, blockX);
+		unsigned int gridY = CUMAT_DIV_UP(sizey, blockY);
+		unsigned int totalBlocks = gridX * gridY;
+		if (static_cast<int>(totalBlocks) < minGridSize) {
+			unsigned int maxGX = CUMAT_DIV_UP(sizex, 1u);
+			unsigned int maxGY = CUMAT_DIV_UP(sizey, 1u);
+			while (totalBlocks < static_cast<unsigned int>(minGridSize) && (gridX < maxGX || gridY < maxGY)) {
+				if (gridX < maxGX) gridX++;
+				else if (gridY < maxGY) gridY++;
+				totalBlocks = gridX * gridY;
+			}
+		}
+
+		CUMAT_LOG_DEBUG("Best potential occupancy for " << internal::type_name<T>()
+			<< " found to be: blocksize=" << blockX << "x" << blockY
+			<< ", gridSize=" << gridX << "x" << gridY);
 		KernelLaunchConfig cfg = {
 			dim3(sizex, sizey, 1),
-			dim3(bestBlockSize, 1, 1),
-			dim3(numBlocks, 1, 1)
+			dim3(blockX, blockY, 1),
+			dim3(gridX, gridY, 1)
 		};
 		return cfg;
 	}
@@ -447,13 +476,46 @@ Context(int device = 0)
 		CUMAT_ASSERT_ARGUMENT(sizez > 0);
 		int minGridSize = 0, bestBlockSize = 0;
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
-		unsigned int totalWork = sizex * sizey * sizez;
-		int numBlocks = std::max(int(CUMAT_DIV_UP(totalWork, bestBlockSize)), minGridSize);
-		CUMAT_LOG_DEBUG("Best potential occupancy for " << internal::type_name<T>() << " found to be: blocksize=" << bestBlockSize << ", gridSize=" << numBlocks);
+
+		// Factor bestBlockSize into 3D block dimensions for spatial locality
+		unsigned int blockX = static_cast<unsigned int>(std::cbrt(static_cast<double>(bestBlockSize)));
+		if (blockX > sizex) blockX = sizex;
+		if (blockX < 1) blockX = 1;
+		unsigned int remaining = static_cast<unsigned int>(bestBlockSize) / blockX;
+		unsigned int blockY = static_cast<unsigned int>(std::sqrt(static_cast<double>(remaining)));
+		if (blockY > sizey) blockY = sizey;
+		if (blockY < 1) blockY = 1;
+		unsigned int blockZ = remaining / blockY;
+		if (blockZ > sizez) blockZ = sizez;
+		if (blockZ < 1) blockZ = 1;
+		while (blockX * blockY * blockZ > static_cast<unsigned int>(bestBlockSize) && (blockX > 1 || blockY > 1)) {
+			if (blockX > 1) blockX--;
+			else if (blockY > 1) blockY--;
+		}
+
+		unsigned int gridX = CUMAT_DIV_UP(sizex, blockX);
+		unsigned int gridY = CUMAT_DIV_UP(sizey, blockY);
+		unsigned int gridZ = CUMAT_DIV_UP(sizez, blockZ);
+		unsigned int totalBlocks = gridX * gridY * gridZ;
+		if (static_cast<int>(totalBlocks) < minGridSize) {
+			unsigned int maxGX = CUMAT_DIV_UP(sizex, 1u);
+			unsigned int maxGY = CUMAT_DIV_UP(sizey, 1u);
+			unsigned int maxGZ = CUMAT_DIV_UP(sizez, 1u);
+			while (totalBlocks < static_cast<unsigned int>(minGridSize) && (gridX < maxGX || gridY < maxGY || gridZ < maxGZ)) {
+				if (gridX < maxGX) gridX++;
+				else if (gridY < maxGY) gridY++;
+				else if (gridZ < maxGZ) gridZ++;
+				totalBlocks = gridX * gridY * gridZ;
+			}
+		}
+
+		CUMAT_LOG_DEBUG("Best potential occupancy for " << internal::type_name<T>()
+			<< " found to be: blocksize=" << blockX << "x" << blockY << "x" << blockZ
+			<< ", gridSize=" << gridX << "x" << gridY << "x" << gridZ);
 		KernelLaunchConfig cfg = {
 			dim3(sizex, sizey, sizez),
-			dim3(bestBlockSize, 1, 1),
-			dim3(numBlocks, 1, 1)
+			dim3(blockX, blockY, blockZ),
+			dim3(gridX, gridY, gridZ)
 		};
 		return cfg;
 	}

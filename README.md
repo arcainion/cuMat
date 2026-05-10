@@ -115,7 +115,7 @@ Several performance items from the original audit have been addressed (see [CHAN
 ### Low Priority
 
 - ~~**`typeid()` in debug logging forces RTTI emission** — 17 `CUMAT_LOG_DEBUG` calls use `typeid(T).name()`, forcing type_info emission for every template instantiation. **DONE**: Added `internal::type_name<T>()` helper based on `__FUNCSIG__`/`__PRETTY_FUNCTION__` (no RTTI). Replaced all 15 call sites and removed `#include <typeinfo>` from `Context.h`.~~
-- **`createLaunchConfig2D/3D` use 1D thread blocks** — Always creates `dim3(bestBlockSize, 1, 1)` blocks; no 2D block-level spatial locality is exploited.
+- ~~**`createLaunchConfig2D/3D` use 1D thread blocks** — Always creates `dim3(bestBlockSize, 1, 1)` blocks; no 2D block-level spatial locality is exploited. **DONE**: `CUMAT_KERNEL_2D_LOOP` and `CUMAT_KERNEL_3D_LOOP` now use nested 2D/3D grid-stride loops with `blockIdx.y`/`blockIdx.z` and `threadIdx.y`/`threadIdx.z`. `createLaunchConfig2D`/`createLaunchConfig3D` compute balanced 2D/3D block dimensions (sqrt/cbrt of bestBlockSize), ensuring block-level spatial locality in Y/Z dimensions. Added `#include <cmath>` for `std::sqrt`/`std::cbrt`.
 - **Hardcoded warp size of 32** — `ReductionOps.h:360-387` hardcodes `32` in the warp reduction kernel.
 - **Dead code** — `Context.h:374-382` has a commented-out hardcoded block size of 256.
 
