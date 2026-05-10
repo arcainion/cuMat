@@ -188,3 +188,5 @@ TEST(ProductTest, VectorDotViaProduct)
     result.copyToHost(host.data());
     EXPECT_FLOAT_EQ(32.0f, host[0]);
 }
+
+
