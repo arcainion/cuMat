@@ -368,16 +368,16 @@ namespace internal
 			_Input input, _Output output, _Op op, _Scalar initial, Index N)
 		{
 			CUMAT_KERNEL_1D_LOOP(i_, virtual_size)
-				const Index i = i_ / 32;//i_ >> 5;
-				const int warp = i_ % 32; // i_ & 32;
+				const Index i = i_ / warpSize;
+				const int warp = i_ % warpSize;
 				const Index O = i * N;
 				//local reduce
 				_Scalar v = initial;
-				for (Index n = warp; n < N; n += 32)
+				for (Index n = warp; n < N; n += warpSize)
 					v = op(v, input[O + n]);
 				//final warp reduce
 				#pragma unroll
-				for (int offset = 16; offset > 0; offset /= 2)
+				for (int offset = warpSize / 2; offset > 0; offset /= 2)
 					v = op(v, __shfl_down_sync(0xffffffff, v, offset));
 				//write output
 				if (warp == 0) output[i] = v;

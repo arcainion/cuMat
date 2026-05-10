@@ -383,17 +383,6 @@ Context(int device = 0)
 		const size_t size_ = static_cast<size_t>(size);
 		CUMAT_ASSERT_ARGUMENT(size > 0);
 		CUMAT_ASSERT(Index(size_) == size && "size exceeds the range of size_t!");
-#if 0
-		//Very simplistic first version
-		unsigned int blockSize = 256u;
-		KernelLaunchConfig cfg = {
-			dim3(size, 1, 1),
-			dim3(blockSize, 1, 1),
-			dim3(CUMAT_DIV_UP(size, blockSize), 1, 1)
-		};
-		return cfg;
-#else
-		//Improved version using cudaOccupancyMaxPotentialBlockSize
 		int minGridSize = 0, bestBlockSize = 0;
 		CUMAT_SAFE_CALL(cudaOccupancyMaxPotentialBlockSize(&minGridSize, &bestBlockSize, func));
 		int numBlocks = std::max(int(CUMAT_DIV_UP(size_, bestBlockSize)), minGridSize);
@@ -404,7 +393,6 @@ Context(int device = 0)
 			dim3(numBlocks, 1, 1)
 		};
 		return cfg;
-#endif
 	}
 
 	/**
