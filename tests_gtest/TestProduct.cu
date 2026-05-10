@@ -44,10 +44,12 @@ TEST(ProductTest, MatrixMatrixProduct)
 
     std::vector<float> host(4);
     result.copyToHost(host.data());
-    EXPECT_FLOAT_EQ(58.0f, host[0]);
-    EXPECT_FLOAT_EQ(139.0f, host[1]);
-    EXPECT_FLOAT_EQ(64.0f, host[2]);
-    EXPECT_FLOAT_EQ(154.0f, host[3]);
+    constexpr bool isRM = CUMAT_IS_ROW_MAJOR(decltype(result)::Flags);
+    auto idx = [&](int r, int c) { return isRM ? (c + 2 * r) : (r + 2 * c); };
+    EXPECT_FLOAT_EQ(58.0f, host[idx(0, 0)]);
+    EXPECT_FLOAT_EQ(64.0f, host[idx(0, 1)]);
+    EXPECT_FLOAT_EQ(139.0f, host[idx(1, 0)]);
+    EXPECT_FLOAT_EQ(154.0f, host[idx(1, 1)]);
 }
 
 TEST(ProductTest, SquareMatrixProduct)
@@ -70,9 +72,17 @@ TEST(ProductTest, SquareMatrixProduct)
 
     std::vector<float> host(9);
     result.copyToHost(host.data());
-    EXPECT_FLOAT_EQ(30.0f, host[0]);
-    EXPECT_FLOAT_EQ(24.0f, host[3]);
-    EXPECT_FLOAT_EQ(18.0f, host[6]);
+    constexpr bool isRM = CUMAT_IS_ROW_MAJOR(decltype(result)::Flags);
+    auto idx = [&](int r, int c) { return isRM ? (c + 3 * r) : (r + 3 * c); };
+    EXPECT_FLOAT_EQ(30.0f, host[idx(0, 0)]);
+    EXPECT_FLOAT_EQ(24.0f, host[idx(0, 1)]);
+    EXPECT_FLOAT_EQ(18.0f, host[idx(0, 2)]);
+    EXPECT_FLOAT_EQ(84.0f, host[idx(1, 0)]);
+    EXPECT_FLOAT_EQ(69.0f, host[idx(1, 1)]);
+    EXPECT_FLOAT_EQ(54.0f, host[idx(1, 2)]);
+    EXPECT_FLOAT_EQ(138.0f, host[idx(2, 0)]);
+    EXPECT_FLOAT_EQ(114.0f, host[idx(2, 1)]);
+    EXPECT_FLOAT_EQ(90.0f, host[idx(2, 2)]);
 }
 
 TEST(ProductTest, TransposeProduct)
@@ -128,14 +138,17 @@ TEST(ProductTest, BatchedProduct)
 
     std::vector<float> host(8);
     result.copyToHost(host.data());
-    EXPECT_FLOAT_EQ(1.0f, host[0]);
-    EXPECT_FLOAT_EQ(4.0f, host[1]);
-    EXPECT_FLOAT_EQ(2.0f, host[2]);
-    EXPECT_FLOAT_EQ(5.0f, host[3]);
-    EXPECT_FLOAT_EQ(8.0f, host[4]);
-    EXPECT_FLOAT_EQ(11.0f, host[5]);
-    EXPECT_FLOAT_EQ(9.0f, host[6]);
-    EXPECT_FLOAT_EQ(12.0f, host[7]);
+    constexpr bool isRM = CUMAT_IS_ROW_MAJOR(decltype(result)::Flags);
+    const int rows2 = 2, cols2 = 2;
+    auto idx = [&](int r, int c, int b) { return isRM ? (c + cols2 * (r + rows2 * b)) : (r + rows2 * (c + cols2 * b)); };
+    EXPECT_FLOAT_EQ(1.0f, host[idx(0, 0, 0)]);
+    EXPECT_FLOAT_EQ(2.0f, host[idx(0, 1, 0)]);
+    EXPECT_FLOAT_EQ(4.0f, host[idx(1, 0, 0)]);
+    EXPECT_FLOAT_EQ(5.0f, host[idx(1, 1, 0)]);
+    EXPECT_FLOAT_EQ(8.0f, host[idx(0, 0, 1)]);
+    EXPECT_FLOAT_EQ(9.0f, host[idx(0, 1, 1)]);
+    EXPECT_FLOAT_EQ(11.0f, host[idx(1, 0, 1)]);
+    EXPECT_FLOAT_EQ(12.0f, host[idx(1, 1, 1)]);
 }
 
 TEST(ProductTest, DoublePrecisionProduct)
@@ -154,10 +167,12 @@ TEST(ProductTest, DoublePrecisionProduct)
 
     std::vector<double> host(4);
     result.copyToHost(host.data());
-    EXPECT_DOUBLE_EQ(7.0, host[0]);
-    EXPECT_DOUBLE_EQ(13.0, host[1]);
-    EXPECT_DOUBLE_EQ(11.0, host[2]);
-    EXPECT_DOUBLE_EQ(21.0, host[3]);
+    constexpr bool isRM = CUMAT_IS_ROW_MAJOR(decltype(result)::Flags);
+    auto idx = [&](int r, int c) { return isRM ? (c + 2 * r) : (r + 2 * c); };
+    EXPECT_DOUBLE_EQ(7.0, host[idx(0, 0)]);
+    EXPECT_DOUBLE_EQ(11.0, host[idx(0, 1)]);
+    EXPECT_DOUBLE_EQ(13.0, host[idx(1, 0)]);
+    EXPECT_DOUBLE_EQ(21.0, host[idx(1, 1)]);
 }
 
 TEST(ProductTest, VectorDotViaProduct)

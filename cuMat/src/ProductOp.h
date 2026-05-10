@@ -87,7 +87,7 @@ namespace internal {
 
             IsOuterProduct = (InnerSizeLeft==1) && (InnerSizeRight==1),
 
-            Flags = ColumnMajor, //TODO: pick best flag
+            Flags = FlagsLeft,
             RowsAtCompileTime = TransposedOutput ? ColumnsNonT : RowsNonT,
             ColsAtCompileTime = TransposedOutput ? RowsNonT : ColumnsNonT,
 

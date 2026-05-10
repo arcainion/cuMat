@@ -301,7 +301,9 @@ public:
 	}
 
     //TODO: optimized path: implement a method 'sameLayout' that uses the linear index
-    //directly instead of the row+col+batch.
+    //directly instead of the row+col+batch. Note: the "index" parameter is the output's
+    //linear index and may not be valid when the expression changes dimensionality
+    //(e.g., DiagonalView, TransposeOp). Use rawCoeff(index) for direct access instead.
 
 	/**
 	 * \brief Accesses the coefficient at the specified coordinate for reading and writing.

@@ -100,3 +100,7 @@ All completed changes, fixes, and improvements to cuMat.
 - **Removed bundled Catch2** — All tests use Google Test (gtest from vcpkg); removed `third-party/catch/catch.hpp`
 - **Removed bundled CUB** — CUB sourced from CUDA Toolkit 12.4 (via Thrust); removed `third-party/cub/`
 - **Updated build documentation** — All references to `third-party/` removed from requirements and README
+
+## ProductOp Storage-Order Propagation
+
+- **ProductOp output flags now propagate from left operand** — `ProductOp.h:90`: Changed `Flags = ColumnMajor` (always hardcoded) to `Flags = FlagsLeft`, so the product expression's storage order follows the left operand. This avoids unnecessary layout conversion when the product is evaluated into a row-major context. The cuBLAS dense path is unaffected (uses destination flags). Test assertions made storage-order-independent.

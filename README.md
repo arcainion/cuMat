@@ -112,7 +112,8 @@ Several performance items from the original audit have been addressed (see [CHAN
 
 ### Low Priority
 
-- **`warpSize` is a runtime variable** — `ReductionOps.h` warp reduction kernel replaced hardcoded `32` with CUDA built-in `warpSize`, which is always 32 on current hardware but prevents compiler constant-folding. If future architectures change warp size, the kernel automatically adapts.
+- ~~**`warpSize` is a runtime variable** — `ReductionOps.h` warp reduction kernel replaced hardcoded `32` with CUDA built-in `warpSize`, which is always 32 on current hardware but prevents compiler constant-folding. If future architectures change warp size, the kernel automatically adapts.~~
+- ~~**`ProductOp.h:90` hardcoded `ColumnMajor` flag** — `Flags = ColumnMajor` always forced column-major on product expressions regardless of input storage. Changed to `Flags = FlagsLeft` to propagate the left operand's storage order, avoiding unnecessary layout conversions in row-major contexts.~~
 - ~~**`StridedMatrixInputIterator` — 3 divisions + 3 modulos per element** — `Iterator.h:64-78` — **DONE**: Replaced with sequential stride decomposition; falls back to original formula when strides are equal.~~
 - ~~**Synchronization-heavy debug mode** — `CUMAT_VERBOSE_ERROR_CHECKING=1` — **DONE**: Replaced `cudaDeviceSynchronize()` with `cudaStreamSynchronize(stream_)` in cuBLAS/cuSOLVER wrappers; removed sync entirely from `cudaSafeCall` (CUDA runtime APIs return errors synchronously).~~
 
@@ -122,6 +123,7 @@ Several performance items from the original audit have been addressed (see [CHAN
 - ~~**`createLaunchConfig2D/3D` use 1D thread blocks** — Always creates `dim3(bestBlockSize, 1, 1)` blocks; no 2D block-level spatial locality is exploited. **DONE**: `CUMAT_KERNEL_2D_LOOP` and `CUMAT_KERNEL_3D_LOOP` now use nested 2D/3D grid-stride loops with `blockIdx.y`/`blockIdx.z` and `threadIdx.y`/`threadIdx.z`. `createLaunchConfig2D`/`createLaunchConfig3D` compute balanced 2D/3D block dimensions (sqrt/cbrt of bestBlockSize), ensuring block-level spatial locality in Y/Z dimensions. Added `#include <cmath>` for `std::sqrt`/`std::cbrt`.
 - ~~**Hardcoded warp size of 32** — `ReductionOps.h:360-387` hardcodes `32` in the warp reduction kernel. **DONE**: Replaced all hardcoded `32` references with CUDA built-in `warpSize` variable and butterfly start offset with `warpSize / 2`.~~
 - ~~**Dead code** — `Context.h:374-382` has a commented-out hardcoded block size of 256. **DONE**: Removed the `#if 0 ... #else ... #endif` dead-code block from `createLaunchConfig1D`.~~
+- ~~**Substream create/destroy on every Device reduction** — `ReductionOps.h:210` creates and destroys `MiniBatch` CUDA streams on every CUB Device reduction call. **DONE**: Added lazy-initialized cached substream array to `Context` (4 streams, created on first use, destroyed with the context). `Device<MiniBatch>` evaluator now reuses cached streams via `ctx.substream(i)`.~~
 
 ## License
 cuMat is shipped under the permissive [MIT](https://choosealicense.com/licenses/mit/) license.
