@@ -141,6 +141,7 @@ class Context
 private:
 	cudaStream_t stream_;
 	cudaStream_t transferStream_;
+	cudaStream_t substreams_[4] = {};
 	int device_ = 0;
 
 #if CUMAT_CONTEXT_DEBUG_MEMORY==1
@@ -181,6 +182,14 @@ Context(int device = 0)
 			cudaStreamDestroy(transferStream_);
 			transferStream_ = nullptr;
 		}
+		for (int i = 0; i < 4; ++i)
+		{
+			if (substreams_[i] != nullptr)
+			{
+				cudaStreamDestroy(substreams_[i]);
+				substreams_[i] = nullptr;
+			}
+		}
 		CUMAT_LOG_DEBUG("Context deleted for thread 0x" << std::hex << std::this_thread::get_id());
 	#if CUMAT_CONTEXT_DEBUG_MEMORY==1
 		CUMAT_ASSERT(allocationsHost_ == 0 && "some host memory was not released");
@@ -201,6 +210,14 @@ Context(int device = 0)
 		{
 			CUMAT_SAFE_CALL(cudaStreamDestroy(stream_));
 			stream_ = nullptr;
+		}
+		for (int i = 0; i < 4; ++i)
+		{
+			if (substreams_[i] != nullptr)
+			{
+				CUMAT_SAFE_CALL(cudaStreamDestroy(substreams_[i]));
+				substreams_[i] = nullptr;
+			}
 		}
 	}
 
@@ -233,6 +250,23 @@ Context(int device = 0)
 	 * \return the transfer stream for host-device data movement
 	 */
 	cudaStream_t transferStream() const { return transferStream_; }
+
+	/**
+	 * \brief Returns a cached substream by index (0-3).
+	 * Substreams are lazily created on first access and cached for reuse,
+	 * avoiding the overhead of creating/destroying streams on every reduction.
+	 * \param index the substream index (0-3)
+	 * \return the substream handle
+	 */
+	cudaStream_t substream(int index)
+	{
+		CUMAT_ASSERT_ARGUMENT(index >= 0 && index < 4);
+		if (substreams_[index] == nullptr)
+		{
+			CUMAT_SAFE_CALL(cudaStreamCreateWithFlags(&substreams_[index], cudaStreamNonBlocking));
+		}
+		return substreams_[index];
+	}
 
 #if CUMAT_CONTEXT_USE_CUB_ALLOCATOR==1
     static cub::CachingDeviceAllocator& getCubAllocator()

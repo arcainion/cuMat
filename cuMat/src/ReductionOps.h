@@ -207,17 +207,12 @@ namespace internal
 			Index numEntries = ReductionEvaluatorHelper<_Input, _Output, _Axis>::numEntries(in);
 			Index numBatches = ReductionEvaluatorHelper<_Input, _Output, _Axis>::numBatches(in);
 
-			//TODO: cache substreams in Context
-			cudaStream_t substreams[MiniBatch];
-			for (int i=0; i<MiniBatch; ++i)
-			{
-				CUMAT_SAFE_CALL(cudaStreamCreateWithFlags(&substreams[i], cudaStreamNonBlocking));
-			}
 			Event event;
 			size_t temp_storage_bytes = 0;
 			DevicePointer<uint8_t> temp_storage[MiniBatch];
 
-			cudaStream_t mainStream = Context::current().stream();
+			Context& ctx = Context::current();
+			cudaStream_t mainStream = ctx.stream();
 			int Bmin = std::min(int(numBatches), MiniBatch);
 
 			//initialize temporal storage and add sync points
@@ -229,10 +224,10 @@ namespace internal
 				iterOut,
 				int(numEntries), 
 				op, initial,
-				substreams[0]);
+				ctx.substream(0));
 			for (int b = 0; b < Bmin; ++b)
 			{
-				event.streamWait(substreams[b]);
+				event.streamWait(ctx.substream(b));
 				temp_storage[b] = DevicePointer<uint8_t>(temp_storage_bytes);
 			}
 			//perform reduction
@@ -246,18 +241,13 @@ namespace internal
 					iterOut + b,
 					int(numEntries), 
 					op, initial,
-					substreams[i]);
+					ctx.substream(i));
 			}
 			//add sync points
 			for (int b = 0; b < Bmin; ++b)
 			{
-				event.record(substreams[b]);
+				event.record(ctx.substream(b));
 				event.streamWait(mainStream);
-			}
-			//free streams
-			for (int i = 0; i < MiniBatch; ++i)
-			{
-				cudaStreamDestroy(substreams[i]);
 			}
 			
 #ifdef CUMAT_UNITTESTS_LAST_REDUCTION
